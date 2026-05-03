@@ -48,13 +48,32 @@ def test_wbs_evm_sheet_structure():
     ws = wb["WBS_EVM"]
     
     # 3フェーズヘッダーの確認 (結合されていることを想定)
-    # F列: 作成, O列: レビュー実施, X列: レビュー後修正 (設計に基づき座標を調整)
+    # F列(6): 作成, P列(16): レビュー実施, Z列(26): レビュー後修正
     assert ws["F1"].value == "作成", "作成フェーズのヘッダーがありません。"
-    assert ws["O1"].value == "レビュー実施", "レビュー実施フェーズのヘッダーがありません。"
-    assert ws["X1"].value == "レビュー後修正", "レビュー後修正フェーズのヘッダーがありません。"
+    assert ws["P1"].value == "レビュー実施", "レビュー実施フェーズのヘッダーがありません。"
+    assert ws["Z1"].value == "レビュー後修正", "レビュー後修正フェーズのヘッダーがありません。"
     
     # 日本語併記の確認
     # 各フェーズの PV, EV, AC 列を確認
     assert "PV (計画値)" in [ws.cell(row=2, column=c).value for c in range(1, 40)], "PV (計画値) の列が見当たりません。"
     assert "EV (出来高)" in [ws.cell(row=2, column=c).value for c in range(1, 40)], "EV (出来高) の列が見当たりません。"
+
+def test_wbs_evm_formulas_and_alerts():
+    """
+    タスク 4: WBS_EVM シートの計算式とアラート設定を検証する。
+    """
+    generator = TemplateGenerator(TEMPLATE_PATH)
+    generator.generate()
+    
+    wb = load_workbook(TEMPLATE_PATH)
+    ws = wb["WBS_EVM"]
+    
+    # 3行目の数式を検証 (作成フェーズ: F列(6)〜O列(15))
+    # PV (計画値): M列(13), EV (出来高): N列(14), AC (実績コスト): O列(15)
+    assert ws["M3"].data_type == 'f', "M3 に数式が設定されていません (PV)."
+    assert ws["N3"].data_type == 'f', "N3 に数式が設定されていません (EV)."
+    assert ws["O3"].data_type == 'f', "O3 に数式が設定されていません (AC)."
+    
+    # 条件付き書式の存在確認 (SPI/CPI 等)
+    assert len(ws.conditional_formatting) > 0, "条件付き書式が設定されていません。"
 
