@@ -48,15 +48,20 @@ def test_wbs_evm_sheet_structure():
     ws = wb["WBS_EVM"]
     
     # 3フェーズヘッダーの確認 (結合されていることを想定)
-    # F列(6): 作成, P列(16): レビュー実施, Z列(26): レビュー後修正
-    assert ws["F1"].value == "作成", "作成フェーズのヘッダーがありません。"
+    # 作成: D1(4), レビュー実施: P1(16), レビュー後修正: AB1(28)
+    assert ws["D1"].value == "作成", "作成フェーズのヘッダーがありません。"
     assert ws["P1"].value == "レビュー実施", "レビュー実施フェーズのヘッダーがありません。"
-    assert ws["Z1"].value == "レビュー後修正", "レビュー後修正フェーズのヘッダーがありません。"
-    
+    assert ws["AB1"].value == "レビュー後修正", "レビュー後修正フェーズのヘッダーがありません。"
+
     # 日本語併記の確認
-    # 各フェーズの PV, EV, AC 列を確認
-    assert "PV (計画値)" in [ws.cell(row=2, column=c).value for c in range(1, 40)], "PV (計画値) の列が見当たりません。"
-    assert "EV (出来高)" in [ws.cell(row=2, column=c).value for c in range(1, 40)], "EV (出来高) の列が見当たりません。"
+    # 各フェーズの列名を確認 (1フェーズ12列構成)
+    expected_cols = [
+        "開始日予定", "終了日予定", "工数予定", "開始日実績", "終了日実績", "工数実績",
+        "進捗率(%)", "PV (計画値)", "EV (出来高)", "AC (実績コスト)", "担当メンバー", "チームリーダー"
+    ]
+    all_col_values = [ws.cell(row=2, column=c).value for c in range(1, 45)]
+    for col_name in expected_cols:
+        assert col_name in all_col_values, f"{col_name} の列が見当たりません。"
 
 def test_wbs_evm_formulas_and_alerts():
     """
@@ -64,15 +69,15 @@ def test_wbs_evm_formulas_and_alerts():
     """
     generator = TemplateGenerator(TEMPLATE_PATH)
     generator.generate()
-    
+
     wb = load_workbook(TEMPLATE_PATH)
     ws = wb["WBS_EVM"]
-    
-    # 3行目の数式を検証 (作成フェーズ: F列(6)〜O列(15))
-    # PV (計画値): M列(13), EV (出来高): N列(14), AC (実績コスト): O列(15)
-    assert ws["M3"].data_type == 'f', "M3 に数式が設定されていません (PV)."
-    assert ws["N3"].data_type == 'f', "N3 に数式が設定されていません (EV)."
-    assert ws["O3"].data_type == 'f', "O3 に数式が設定されていません (AC)."
+
+    # 3行目の数式を検証 (作成フェーズ: D列(4)〜O列(15) の12列構成)
+    # PV (計画値): K列(11), EV (出来高): L列(12), AC (実績コスト): M列(13)
+    assert ws.cell(row=3, column=11).data_type == 'f', "11列目(PV) に数式が設定されていません。"
+    assert ws.cell(row=3, column=12).data_type == 'f', "12列目(EV) に数式が設定されていません。"
+    assert ws.cell(row=3, column=13).data_type == 'f', "13列目(AC) に数式が設定されていません。"
     
     # 条件付き書式の存在確認 (SPI/CPI 等)
     assert len(ws.conditional_formatting) > 0, "条件付き書式が設定されていません。"
@@ -93,7 +98,5 @@ def test_team_evm_sheet_summary():
     assert "Aさんチーム" in [ws.cell(row=r, column=1).value for r in range(1, 20)], "Aさんチームの集計ブロックがありません。"
     
     # SUMIFS / COUNTIFS 数式の存在確認 (メトリクステーブルのどこか)
-    # 例: 完了タスクの実績数などのセルに数式があるか
     formulas = [ws.cell(row=r, column=c).value for r in range(1, 40) for c in range(1, 20) if ws.cell(row=r, column=c).data_type == 'f']
     assert any("SUMIFS" in str(f) or "COUNTIFS" in str(f) for f in formulas), "集計用の SUMIFS/COUNTIFS 数式が見当たりません。"
-
