@@ -20,3 +20,18 @@ def test_template_file_exists():
 
     assert os.path.exists(TEMPLATE_PATH), "テンプレートファイルが生成されていません。"
 
+def test_settings_sheet_structure():
+    """
+    タスク 2: Settings シートの構造を検証する。
+    """
+    generator = TemplateGenerator(TEMPLATE_PATH)
+    generator.generate()
+    
+    wb = load_workbook(TEMPLATE_PATH)
+    assert "Settings" in wb.sheetnames, "Settings シートが存在しません。"
+    
+    ws = wb["Settings"]
+    # 期待される見出しの検証
+    assert ws["A1"].value == "プロジェクト基本情報", "A1に見出しがありません。"
+    assert ws["A3"].value == "メンバーリスト", "A3に見出しがありません。"
+
