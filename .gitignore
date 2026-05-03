@@ -3,5 +3,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 .DS_Store
+
+# Excel files
 *.xlsx
-!wbs_ebm_format.xlsx
+!templates/master_template.xlsx
