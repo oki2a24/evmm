@@ -1,13 +1,23 @@
+import os
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill
 from openpyxl.formatting.rule import CellIsRule
 from openpyxl.workbook.defined_name import DefinedName
-import os
 
 """
 WBS/EVM マスターテンプレート生成スクリプト
 
-このスクリプトは、プロジェクト管理に使用する標準的な WBS/EVM Excel テンプレートを生成します。
+【重要：このスクリプトの存在意義】
+このスクリプトは、単なるエクセル作成ツールではなく、本プロジェクトにおける「正しい管理構造の定義書（SSOT: Single Source of Truth）」です。
+バイナリであるエクセルファイルそのものをマスターとせず、本スクリプトをマスターとすることで以下の利点を得ます：
+
+1. 整合性の保証: 数式、名前定義、シート構造のミスを、コードレビューとテスト（TDD）で防ぐことができます。
+2. 自己修復性: 運用中にエクセルが破損したり、数式が上書きされたりしても、本スクリプトを実行すれば即座に「完璧な状態」に復元可能です。
+3. 自動化エンジン: 将来的には、このスクリプトがパラメータを受け取り、プロジェクト規模や期間に応じた動的なテンプレートを生成する「知能」となります。
+
+【注意】
+- 本スクリプトで生成されたエクセルの「構造」や「数式」を、エクセル上で直接修正しないでください。
+- 構造の変更が必要な場合は、まず本スクリプトを修正し、再生成してください。
 """
 
 class TemplateGenerator:
