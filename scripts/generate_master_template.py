@@ -1,6 +1,6 @@
 import os
 from openpyxl import Workbook
-from openpyxl.styles import Font, Alignment, PatternFill
+from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.formatting.rule import CellIsRule
 from openpyxl.workbook.defined_name import DefinedName
 
@@ -29,6 +29,38 @@ class TemplateGenerator:
         # デフォルトのシートを削除して新しく作成
         if "Sheet" in self.wb.sheetnames:
             del self.wb["Sheet"]
+
+    def _apply_borders(self, ws, min_row, max_row, min_col, max_col, outer_medium=True):
+        """
+        指定された範囲に罫線を適用する。
+        内部は細線(thin)、外枠とフェーズ境界は太線(medium)を使用する。
+        """
+        thin = Side(style='thin')
+        medium = Side(style='medium')
+        
+        for row in ws.iter_rows(min_row=min_row, max_row=max_row, min_col=min_col, max_col=max_col):
+            for cell in row:
+                # デフォルトは全周囲細線
+                border_args = {
+                    'top': thin, 'bottom': thin, 'left': thin, 'right': thin
+                }
+                
+                # 外枠の処理
+                if outer_medium:
+                    if cell.row == min_row: border_args['top'] = medium
+                    if cell.row == max_row: border_args['bottom'] = medium
+                    if cell.column == min_col: border_args['left'] = medium
+                    if cell.column == max_col: border_args['right'] = medium
+                
+                # フェーズ境界の処理 (WBS_EVMシート固有)
+                # ユーザーの利便性のため、フェーズの区切りに太線を入れる
+                if ws.title == "WBS_EVM":
+                    # 各フェーズ（作成、レビュー、修正）の右端および基本情報の右端
+                    # 基本情報(3) | 作成(15) | レビュー(27) | 修正(39)
+                    if cell.column in [3, 15, 27]:
+                        border_args['right'] = medium
+                
+                cell.border = Border(**border_args)
 
     def _create_settings_sheet(self):
         """Settingsシートを作成し、基本情報と名前定義を設定する"""
@@ -62,6 +94,8 @@ class TemplateGenerator:
             ws.cell(row=i, column=2, value=role)
             ws.cell(row=i, column=3, value=leader)
             
+        # 名前定義の追加（メンバーリストの範囲）
+        # 将来的にデータ入力規則（プルダウン）で使用することを想定
         member_range = f"Settings!$A$5:$A$100"
         defn = DefinedName("MEMBER_LIST", attr_text=member_range)
         self.wb.defined_names.add(defn)
@@ -74,8 +108,8 @@ class TemplateGenerator:
         header_font = Font(bold=True)
         alignment = Alignment(horizontal="center", vertical="center")
         
-        # 1フェーズ12列構成
-        # 4列目Dから開始
+        # 1フェーズ12列構成。各フェーズの開始列を定義。
+        # 4列目(D)から開始。No(1), ID(2), 名称(3) の後。
         phases = [
             ("作成", 4, 15),           # D(4)からO(15)
             ("レビュー実施", 16, 27),   # P(16)からAA(27)
@@ -97,11 +131,12 @@ class TemplateGenerator:
             cell.font = header_font
             cell.fill = header_fill
             
-        # 担当・リーダーを左端に配置した列構成
+        # 担当・リーダーを左端に配置した列構成 (計12列)
         phase_cols = [
-            "担当メンバー", "チームリーダー",
-            "開始日予定", "終了日予定", "工数予定", "開始日実績", "終了日実績", "工数実績",
-            "進捗率(%)", "PV (計画値)", "EV (出来高)", "AC (実績コスト)"
+            "担当メンバー", "チームリーダー", # 0, 1
+            "開始日予定", "終了日予定", "工数予定", # 2, 3, 4
+            "開始日実績", "終了日実績", "工数実績", # 5, 6, 7
+            "進捗率(%)", "PV (計画値)", "EV (出来高)", "AC (実績コスト)" # 8, 9, 10, 11
         ]
         
         for i, phase in enumerate(phases):
@@ -112,57 +147,72 @@ class TemplateGenerator:
                 cell.alignment = alignment
                 cell.fill = header_fill
 
-        # 3行目から100行目まで数式を適用
+        # 3行目から100行目まで数式とスタイルを適用
         for row in range(3, 103):
             for i, phase in enumerate(phases):
-                s_col = phase[1]
+                s_col = phase[1] # 各フェーズの開始列番号
                 
-                # 担当: s_col(0), リーダー: s_col+1(1)
-                # 予定・実績・進捗・EVMの列記号を再計算
-                plan_start = ws.cell(row=row, column=s_col+2).column_letter
-                plan_end = ws.cell(row=row, column=s_col+3).column_letter
-                plan_cost = ws.cell(row=row, column=s_col+4).column_letter
-                progress = ws.cell(row=row, column=s_col+8).column_letter
-                actual_cost_input = ws.cell(row=row, column=s_col+7).column_letter
-                # 進捗率(%)セルの書式設定
+                # 列記号の取得 (数式作成用)
+                # s_col からの相対位置で指定
+                plan_start = ws.cell(row=row, column=s_col+2).column_letter # 開始日予定
+                plan_end = ws.cell(row=row, column=s_col+3).column_letter   # 終了日予定
+                plan_cost = ws.cell(row=row, column=s_col+4).column_letter  # 工数予定
+                actual_cost_input = ws.cell(row=row, column=s_col+7).column_letter # 工数実績
+                progress = ws.cell(row=row, column=s_col+8).column_letter   # 進捗率(%)
+                
+                # 進捗率(%)セルの書式設定: カスタム書式「0"%"」により100入力で100%と表示
                 progress_cell = ws.cell(row=row, column=s_col+8)
                 progress_cell.number_format = '0"%"'
                 progress_cell.alignment = alignment
 
-                # PV
+                # PV (Planned Value / 計画値): s_col + 9
+                # 今日の日付に基づき、予定期間の消化具合から算出
                 pv_formula = f'=IF(TODAY()<{plan_start}{row}, 0, IF(TODAY()>{plan_end}{row}, {plan_cost}{row}, {plan_cost}{row} * (TODAY()-{plan_start}{row})/({plan_end}{row}-{plan_start}{row}+1)))'
                 pv_cell = ws.cell(row=row, column=s_col+9, value=pv_formula)
                 pv_cell.alignment = alignment
                 
-                # EV (出来高)
-                # 進捗率(%)を100で割って適用
+                # EV (Earned Value / 出来高): s_col + 10
+                # 工数予定に進捗率を掛けて算出 (/100 はパーセント入力対応)
                 ev_formula = f'={plan_cost}{row} * ({progress}{row}/100)'
                 ev_cell = ws.cell(row=row, column=s_col+10, value=ev_formula)
                 ev_cell.alignment = alignment
                 
-                # AC
+                # AC (Actual Cost / 実績コスト): s_col + 11
+                # 入力された実績工数をそのまま参照
                 ac_formula = f'={actual_cost_input}{row}'
                 ac_cell = ws.cell(row=row, column=s_col+11, value=ac_formula)
                 ac_cell.alignment = alignment
 
+        # アラート（条件付き書式）の設定
+        # PV列 (作成: M(13), レビュー: Y(25), 修正: AK(37)) に 0未満アラート(デモ用)
         red_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
-        # PV列 (作成: M(13), レビュー: Y(25), 修正: AK(37))
         for col in ["M", "Y", "AK"]:
             ws.conditional_formatting.add(f"{col}3:{col}103", CellIsRule(operator='lessThan', formula=['0'], fill=red_fill))
 
+        # 罫線の適用 (A1 から AM102 まで)
+        self._apply_borders(ws, 1, 102, 1, 39)
+
     def _create_team_evm_sheet(self):
-        """チームEVMシートを作成（フェーズごとのリーダー列を参照）"""
+        """
+        チームEVMシートを作成。
+        リーダーごとに独立した集計テーブルを構築し、WBS_EVMシートの各フェーズ列を自動集計する。
+        """
         ws = self.wb.create_sheet("チームEVM")
         header_font = Font(bold=True, size=11)
         header_fill = PatternFill(start_color="E0E0E0", end_color="E0E0E0", fill_type="solid")
         
+        # 集計対象のリーダーリスト
         leaders = ["Aさん", "Dさん"]
         
         current_row = 1
         for leader in leaders:
+            start_row_block = current_row # 罫線囲み用の開始行
+            
+            # チームタイトル
             ws.cell(row=current_row, column=1, value=f"{leader}チーム").font = Font(bold=True, size=12)
             current_row += 1
             
+            # --- 1. EVM指標集計テーブル ---
             ws.cell(row=current_row, column=1, value="EVM指標集計").font = header_font
             current_row += 1
             
@@ -173,7 +223,7 @@ class TemplateGenerator:
                 cell.fill = header_fill
             current_row += 1
             
-            # 各フェーズの PV, EV, AC 列と リーダー列 を指定
+            # 各フェーズの指標列と、そのフェーズの責任者（リーダー）列の対応
             # 作成: D(4)-O(15) -> リーダー:E(5), PV:M(13), EV:N(14), AC:O(15)
             # レビュー: P(16)-AA(27) -> リーダー:Q(17), PV:Y(25), EV:Z(26), AC:AA(27)
             # 修正: AB(28)-AM(39) -> リーダー:AC(29), PV:AK(37), EV:AL(38), AC:AM(39)
@@ -184,16 +234,21 @@ class TemplateGenerator:
             ]
             for phase_name, pv_col, ev_col, ac_col, leader_col in phases_info:
                 ws.cell(row=current_row, column=1, value=phase_name)
+                # SUMIFS(集計列, 条件範囲(リーダー列), 条件値)
                 ws.cell(row=current_row, column=2, value=f'=SUMIFS(WBS_EVM!{pv_col}:{pv_col}, WBS_EVM!${leader_col}:${leader_col}, "{leader}")')
                 ws.cell(row=current_row, column=3, value=f'=SUMIFS(WBS_EVM!{ev_col}:{ev_col}, WBS_EVM!${leader_col}:${leader_col}, "{leader}")')
                 ws.cell(row=current_row, column=4, value=f'=SUMIFS(WBS_EVM!{ac_col}:{ac_col}, WBS_EVM!${leader_col}:${leader_col}, "{leader}")')
+                # SV = EV - PV, CV = EV - AC
                 ws.cell(row=current_row, column=5, value=f'=C{current_row}-B{current_row}')
                 ws.cell(row=current_row, column=6, value=f'=C{current_row}-D{current_row}')
+                # SPI = EV / PV, CPI = EV / AC (ゼロ除算回避)
                 ws.cell(row=current_row, column=7, value=f'=IFERROR(C{current_row}/B{current_row}, 1)')
                 ws.cell(row=current_row, column=8, value=f'=IFERROR(C{current_row}/D{current_row}, 1)')
                 current_row += 1
             
-            current_row += 1
+            current_row += 1 # スペース
+            
+            # --- 2. タスクメトリクステーブル ---
             ws.cell(row=current_row, column=1, value="タスクメトリクス").font = header_font
             current_row += 1
             
@@ -204,7 +259,7 @@ class TemplateGenerator:
                 cell.fill = header_fill
             current_row += 1
             
-            # メトリクス用の数式調整 (担当リーダー列に基づく)
+            # メトリクス算出用の参照列 (責任者、予定工数、終了日実績)
             # 作成: 予定工数:H(8), 終了日実績:K(11), リーダー:E(5)
             # レビュー: 予定工数:T(20), 終了日実績:W(23), リーダー:Q(17)
             # 修正: 予定工数:AF(32), 終了日実績:AI(35), リーダー:AC(29)
@@ -215,14 +270,18 @@ class TemplateGenerator:
             ]
             for p_name, cost_col, end_act_col, lead_col in metrics_info:
                 ws.cell(row=current_row, column=1, value=p_name)
+                # 総数: リーダーが一致し、予定工数が入っている行をカウント
                 ws.cell(row=current_row, column=2, value=f'=COUNTIFS(WBS_EVM!${lead_col}:${lead_col}, "{leader}", WBS_EVM!${cost_col}:${cost_col}, ">0")')
+                # 完了(実績): リーダーが一致し、終了日実績が入力されている行をカウント
                 ws.cell(row=current_row, column=6, value=f'=COUNTIFS(WBS_EVM!${lead_col}:${lead_col}, "{leader}", WBS_EVM!${end_act_col}:${end_act_col}, "<>")')
                 current_row += 1
 
-            current_row += 2
+            # チームブロック全体に罫線を適用
+            self._apply_borders(ws, start_row_block, current_row - 1, 1, 8)
+            current_row += 2 # 次のチームへの間隔
 
     def generate(self):
-        """Excelファイルを生成し保存する"""
+        """全てのシートを生成し、Excelファイルを保存する"""
         self._create_settings_sheet()
         self._create_wbs_evm_sheet()
         self._create_team_evm_sheet()

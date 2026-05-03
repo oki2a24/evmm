@@ -87,6 +87,25 @@ def test_wbs_evm_formulas_and_alerts():
     # 条件付き書式の存在確認 (SPI/CPI 等)
     assert len(ws.conditional_formatting) > 0, "条件付き書式が設定されていません。"
 
+def test_wbs_evm_borders():
+    """
+    タスク: WBS_EVM シートの罫線設定を検証する。
+    """
+    generator = TemplateGenerator(TEMPLATE_PATH)
+    generator.generate()
+    
+    wb = load_workbook(TEMPLATE_PATH)
+    ws = wb["WBS_EVM"]
+    
+    # 基本情報と作成フェーズの境界 (C列の右側)
+    assert ws.cell(row=3, column=3).border.right.style == 'medium', "C列の右側に境界線(太)がありません。"
+    
+    # 作成とレビュー実施の境界 (O列の右側)
+    assert ws.cell(row=3, column=15).border.right.style == 'medium', "O列の右側に境界線(太)がありません。"
+    
+    # 内部のグリッド (D列の右側など)
+    assert ws.cell(row=3, column=4).border.right.style == 'thin', "内部のグリッド(細)がありません。"
+
 def test_team_evm_sheet_summary():
     """
     タスク 5: チームEVM シートの集計テーブルと数式を検証する。
