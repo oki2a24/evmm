@@ -77,7 +77,11 @@ def test_wbs_evm_formulas_and_alerts():
     # 3行目の数式を検証 (作成フェーズ: D列(4)〜O列(15) の12列構成)
     # 担当(4), リーダー(5), 開始(6), 終了(7), 工数(8), 実開始(9), 実終了(10), 実工数(11), 進捗(12), PV(13), EV(14), AC(15)
     assert ws.cell(row=3, column=13).data_type == 'f', "13列目(PV) に数式が設定されていません。"
-    assert ws.cell(row=3, column=14).data_type == 'f', "14列目(EV) に数式が設定されていません。"
+    
+    # EV (出来高) の数式が /100 されていることを検証する
+    ev_formula = ws.cell(row=3, column=14).value
+    assert "/100" in ev_formula, f"EVの数式に進捗率のパーセント補正(/100)が含まれていません: {ev_formula}"
+    
     assert ws.cell(row=3, column=15).data_type == 'f', "15列目(AC) に数式が設定されていません。"
     
     # 条件付き書式の存在確認 (SPI/CPI 等)

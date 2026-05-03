@@ -124,18 +124,26 @@ class TemplateGenerator:
                 plan_cost = ws.cell(row=row, column=s_col+4).column_letter
                 progress = ws.cell(row=row, column=s_col+8).column_letter
                 actual_cost_input = ws.cell(row=row, column=s_col+7).column_letter
-                
-                # PV: s_col + 9
+                # 進捗率(%)セルの書式設定
+                progress_cell = ws.cell(row=row, column=s_col+8)
+                progress_cell.number_format = '0"%"'
+                progress_cell.alignment = alignment
+
+                # PV
                 pv_formula = f'=IF(TODAY()<{plan_start}{row}, 0, IF(TODAY()>{plan_end}{row}, {plan_cost}{row}, {plan_cost}{row} * (TODAY()-{plan_start}{row})/({plan_end}{row}-{plan_start}{row}+1)))'
-                ws.cell(row=row, column=s_col+9, value=pv_formula)
+                pv_cell = ws.cell(row=row, column=s_col+9, value=pv_formula)
+                pv_cell.alignment = alignment
                 
-                # EV: s_col + 10
-                ev_formula = f'={plan_cost}{row} * {progress}{row}'
-                ws.cell(row=row, column=s_col+10, value=ev_formula)
+                # EV (出来高)
+                # 進捗率(%)を100で割って適用
+                ev_formula = f'={plan_cost}{row} * ({progress}{row}/100)'
+                ev_cell = ws.cell(row=row, column=s_col+10, value=ev_formula)
+                ev_cell.alignment = alignment
                 
-                # AC: s_col + 11
+                # AC
                 ac_formula = f'={actual_cost_input}{row}'
-                ws.cell(row=row, column=s_col+11, value=ac_formula)
+                ac_cell = ws.cell(row=row, column=s_col+11, value=ac_formula)
+                ac_cell.alignment = alignment
 
         red_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
         # PV列 (作成: M(13), レビュー: Y(25), 修正: AK(37))
