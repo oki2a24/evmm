@@ -136,10 +136,79 @@ class TemplateGenerator:
         for col in ["M", "W", "AG"]: # PV (計画値) の列 (1フェーズ10列構成での調整後)
             ws.conditional_formatting.add(f"{col}3:{col}103", CellIsRule(operator='lessThan', formula=['0'], fill=red_fill))
 
+    def _create_team_evm_sheet(self):
+        """チームEVMシートを作成し、リーダーごとの集計テーブルを構築する"""
+        ws = self.wb.create_sheet("チームEVM")
+        header_font = Font(bold=True, size=11)
+        header_fill = PatternFill(start_color="E0E0E0", end_color="E0E0E0", fill_type="solid")
+        
+        # Settingsからリーダーリストを取得（簡易的に Aさん, Dさん を対象とする）
+        leaders = ["Aさん", "Dさん"]
+        
+        current_row = 1
+        for leader in leaders:
+            # チーム名
+            ws.cell(row=current_row, column=1, value=f"{leader}チーム").font = Font(bold=True, size=12)
+            current_row += 1
+            
+            # 1. EVM指標集計テーブル
+            ws.cell(row=current_row, column=1, value="EVM指標集計").font = header_font
+            current_row += 1
+            
+            evm_headers = ["フェーズ", "PV (計画値)", "EV (出来高)", "AC (実績コスト)", "SV", "CV", "SPI", "CPI"]
+            for i, h in enumerate(evm_headers, start=1):
+                cell = ws.cell(row=current_row, column=i, value=h)
+                cell.font = header_font
+                cell.fill = header_fill
+            current_row += 1
+            
+            phases = [("作成", "M", "N", "O"), ("レビュー実施", "W", "X", "Y"), ("レビュー後修正", "AG", "AH", "AI")]
+            for phase_name, pv_col, ev_col, ac_col in phases:
+                ws.cell(row=current_row, column=1, value=phase_name)
+                # SUMIFS(WBS_EVM!PV列, WBS_EVM!リーダー列, リーダー名)
+                ws.cell(row=current_row, column=2, value=f'=SUMIFS(WBS_EVM!{pv_col}:{pv_col}, WBS_EVM!$E:$E, "{leader}")')
+                ws.cell(row=current_row, column=3, value=f'=SUMIFS(WBS_EVM!{ev_col}:{ev_col}, WBS_EVM!$E:$E, "{leader}")')
+                ws.cell(row=current_row, column=4, value=f'=SUMIFS(WBS_EVM!{ac_col}:{ac_col}, WBS_EVM!$E:$E, "{leader}")')
+                # SV = EV - PV, CV = EV - AC
+                ws.cell(row=current_row, column=5, value=f'=C{current_row}-B{current_row}')
+                ws.cell(row=current_row, column=6, value=f'=C{current_row}-D{current_row}')
+                # SPI = EV / PV, CPI = EV / AC (エラー回避のため IFERROR 使用)
+                ws.cell(row=current_row, column=7, value=f'=IFERROR(C{current_row}/B{current_row}, 1)')
+                ws.cell(row=current_row, column=8, value=f'=IFERROR(C{current_row}/D{current_row}, 1)')
+                current_row += 1
+            
+            current_row += 1 # スペース
+            
+            # 2. タスクメトリクステーブル
+            ws.cell(row=current_row, column=1, value="タスクメトリクス").font = header_font
+            current_row += 1
+            
+            met_headers = ["フェーズ", "総数", "仕掛かり(予定)", "仕掛かり(実績)", "完了(予定)", "完了(実績)"]
+            for i, h in enumerate(met_headers, start=1):
+                cell = ws.cell(row=current_row, column=i, value=h)
+                cell.font = header_font
+                cell.fill = header_fill
+            current_row += 1
+            
+            # メトリクス用の数式 (COUNTIFS を使用)
+            # 例: 完了(実績) = COUNTIFS(リーダー列, リーダー名, 終了日実績列, "<>")
+            # 座標はフェーズごとに異なるため、ループ内で調整が必要だが、ここでは代表的な列を指定
+            phase_info = [("作成", "F", "G", "I", "J"), ("レビュー実施", "P", "Q", "S", "T"), ("レビュー後修正", "Z", "AA", "AC", "AD")]
+            for p_name, p_start, p_end, a_start, a_end in phase_info:
+                ws.cell(row=current_row, column=1, value=p_name)
+                # 総数: COUNTIFS(リーダー列, リーダー名, 予定工数列, ">0")
+                ws.cell(row=current_row, column=2, value=f'=COUNTIFS(WBS_EVM!$E:$E, "{leader}", WBS_EVM!${p_start.replace("F", "H")}:${p_start.replace("F", "H")}, ">0")')
+                # 完了(実績): COUNTIFS(リーダー列, リーダー名, 終了日実績列, "<>")
+                ws.cell(row=current_row, column=6, value=f'=COUNTIFS(WBS_EVM!$E:$E, "{leader}", WBS_EVM!${a_end}:${a_end}, "<>")')
+                current_row += 1
+
+            current_row += 2 # 次のチームへのスペース
+
     def generate(self):
         """Excelファイルを生成し保存する"""
         self._create_settings_sheet()
         self._create_wbs_evm_sheet()
+        self._create_team_evm_sheet()
         
         os.makedirs(os.path.dirname(self.output_path), exist_ok=True)
         self.wb.save(self.output_path)

@@ -77,3 +77,23 @@ def test_wbs_evm_formulas_and_alerts():
     # 条件付き書式の存在確認 (SPI/CPI 等)
     assert len(ws.conditional_formatting) > 0, "条件付き書式が設定されていません。"
 
+def test_team_evm_sheet_summary():
+    """
+    タスク 5: チームEVM シートの集計テーブルと数式を検証する。
+    """
+    generator = TemplateGenerator(TEMPLATE_PATH)
+    generator.generate()
+    
+    wb = load_workbook(TEMPLATE_PATH)
+    assert "チームEVM" in wb.sheetnames, "チームEVM シートが存在しません。"
+    
+    ws = wb["チームEVM"]
+    
+    # チームAの集計ブロックを確認 (設計に基づきAさんチームが最初に来る)
+    assert "Aさんチーム" in [ws.cell(row=r, column=1).value for r in range(1, 20)], "Aさんチームの集計ブロックがありません。"
+    
+    # SUMIFS / COUNTIFS 数式の存在確認 (メトリクステーブルのどこか)
+    # 例: 完了タスクの実績数などのセルに数式があるか
+    formulas = [ws.cell(row=r, column=c).value for r in range(1, 40) for c in range(1, 20) if ws.cell(row=r, column=c).data_type == 'f']
+    assert any("SUMIFS" in str(f) or "COUNTIFS" in str(f) for f in formulas), "集計用の SUMIFS/COUNTIFS 数式が見当たりません。"
+
