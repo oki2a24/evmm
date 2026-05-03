@@ -124,3 +124,18 @@ def test_team_evm_sheet_summary():
     # SUMIFS / COUNTIFS 数式の存在確認 (メトリクステーブルのどこか)
     formulas = [ws.cell(row=r, column=c).value for r in range(1, 40) for c in range(1, 20) if ws.cell(row=r, column=c).data_type == 'f']
     assert any("SUMIFS" in str(f) or "COUNTIFS" in str(f) for f in formulas), "集計用の SUMIFS/COUNTIFS 数式が見当たりません。"
+
+def test_individual_sv_sheet_structure():
+    """
+    タスク: 個人SV シートの構造を検証する。
+    """
+    generator = TemplateGenerator(TEMPLATE_PATH)
+    generator.generate()
+    
+    wb = load_workbook(TEMPLATE_PATH)
+    assert "個人SV" in wb.sheetnames, "個人SV シートが存在しません。"
+    
+    ws = wb["個人SV"]
+    # 期待される見出し（1行目）の検証
+    headers = [ws.cell(row=1, column=c).value for c in range(1, 6)]
+    assert headers == ["No", "メンバー", "前日", "当日", "日付"], f"ヘッダー項目が正しくありません: {headers}"

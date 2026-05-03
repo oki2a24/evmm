@@ -280,11 +280,43 @@ class TemplateGenerator:
             self._apply_borders(ws, start_row_block, current_row - 1, 1, 8)
             current_row += 2 # 次のチームへの間隔
 
+    def _create_individual_sv_sheet(self):
+        """個人SVシートを作成し、メンバーごとの日次追跡テーブルを構築する"""
+        ws = self.wb.create_sheet("個人SV")
+        header_font = Font(bold=True)
+        header_fill = PatternFill(start_color="E0E0E0", end_color="E0E0E0", fill_type="solid")
+        alignment = Alignment(horizontal="center", vertical="center")
+        
+        # 1行目: カラムヘッダー
+        headers = ["No", "メンバー", "前日", "当日", "日付"]
+        for i, h in enumerate(headers, start=1):
+            cell = ws.cell(row=1, column=i, value=h)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = alignment
+            
+        # 日付エリアのサンプル (横に広がる)
+        dates = ["5月3日(日)", "5月4日(月)", "5月5日(火)"]
+        for i, d in enumerate(dates, start=5): # E列(5)から開始
+            cell = ws.cell(row=2, column=i, value=d)
+            cell.font = header_font
+            cell.alignment = alignment
+
+        # メンバーリストの転記 (Settingsシートを参照する想定だが、ここではサンプルを直接配置)
+        members = ["Aさん", "Bさん", "Cさん", "Dさん", "Eさん", "Fさん"]
+        for i, name in enumerate(members, start=3): # 3行目から開始
+            ws.cell(row=i, column=1, value=i-2) # No
+            ws.cell(row=i, column=2, value=name) # メンバー名
+            
+        # 罫線の適用
+        self._apply_borders(ws, 1, len(members) + 2, 1, 7) # サンプルとして7列目まで
+
     def generate(self):
         """全てのシートを生成し、Excelファイルを保存する"""
         self._create_settings_sheet()
         self._create_wbs_evm_sheet()
         self._create_team_evm_sheet()
+        self._create_individual_sv_sheet()
         
         os.makedirs(os.path.dirname(self.output_path), exist_ok=True)
         self.wb.save(self.output_path)
