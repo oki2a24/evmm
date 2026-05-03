@@ -61,9 +61,50 @@ class TemplateGenerator:
         defn = DefinedName("MEMBER_LIST", attr_text=member_range)
         self.wb.defined_names.add(defn)
 
+    def _create_wbs_evm_sheet(self):
+        """WBS_EVMシートを作成し、3フェーズ構造を構築する"""
+        ws = self.wb.create_sheet("WBS_EVM")
+        
+        # ヘッダースタイル
+        header_fill = PatternFill(start_color="CCE5FF", end_color="CCE5FF", fill_type="solid")
+        header_font = Font(bold=True)
+        alignment = Alignment(horizontal="center", vertical="center")
+        
+        # 1行目: フェーズヘッダー (セル結合)
+        phases = [
+            ("作成", 6, 14),           # F列(6)からN列(14)
+            ("レビュー実施", 15, 23),   # O列(15)からW列(23)
+            ("レビュー後修正", 24, 32)  # X列(24)からAF列(32)
+        ]
+        
+        for name, start_col, end_col in phases:
+            ws.cell(row=1, column=start_col, value=name)
+            ws.merge_cells(start_row=1, start_column=start_col, end_row=1, end_column=end_col)
+            ws.cell(row=1, column=start_col).alignment = alignment
+            ws.cell(row=1, column=start_col).font = header_font
+            ws.cell(row=1, column=start_col).fill = header_fill
+
+        # 2行目: カラムヘッダー
+        base_cols = ["No", "機能ID", "機能名称", "担当メンバー", "チームリーダー"]
+        for i, col_name in enumerate(base_cols, start=1):
+            ws.cell(row=2, column=i, value=col_name)
+            
+        phase_cols = [
+            "開始日予定", "終了日予定", "工数予定", "開始日実績", "終了日実績", "工数実績",
+            "PV (計画値)", "EV (出来高)", "AC (実績コスト)"
+        ]
+        
+        for i, phase in enumerate(phases):
+            start_col = phase[1]
+            for j, col_name in enumerate(phase_cols):
+                cell = ws.cell(row=2, column=start_col + j, value=col_name)
+                cell.font = header_font
+                cell.alignment = alignment
+
     def generate(self):
         """Excelファイルを生成し保存する"""
         self._create_settings_sheet()
+        self._create_wbs_evm_sheet()
         
         os.makedirs(os.path.dirname(self.output_path), exist_ok=True)
         self.wb.save(self.output_path)
