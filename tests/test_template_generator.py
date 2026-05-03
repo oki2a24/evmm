@@ -56,8 +56,9 @@ def test_wbs_evm_sheet_structure():
     # 日本語併記の確認
     # 各フェーズの列名を確認 (1フェーズ12列構成)
     expected_cols = [
+        "担当メンバー", "チームリーダー",
         "開始日予定", "終了日予定", "工数予定", "開始日実績", "終了日実績", "工数実績",
-        "進捗率(%)", "PV (計画値)", "EV (出来高)", "AC (実績コスト)", "担当メンバー", "チームリーダー"
+        "進捗率(%)", "PV (計画値)", "EV (出来高)", "AC (実績コスト)"
     ]
     all_col_values = [ws.cell(row=2, column=c).value for c in range(1, 45)]
     for col_name in expected_cols:
@@ -74,10 +75,10 @@ def test_wbs_evm_formulas_and_alerts():
     ws = wb["WBS_EVM"]
 
     # 3行目の数式を検証 (作成フェーズ: D列(4)〜O列(15) の12列構成)
-    # PV (計画値): K列(11), EV (出来高): L列(12), AC (実績コスト): M列(13)
-    assert ws.cell(row=3, column=11).data_type == 'f', "11列目(PV) に数式が設定されていません。"
-    assert ws.cell(row=3, column=12).data_type == 'f', "12列目(EV) に数式が設定されていません。"
-    assert ws.cell(row=3, column=13).data_type == 'f', "13列目(AC) に数式が設定されていません。"
+    # 担当(4), リーダー(5), 開始(6), 終了(7), 工数(8), 実開始(9), 実終了(10), 実工数(11), 進捗(12), PV(13), EV(14), AC(15)
+    assert ws.cell(row=3, column=13).data_type == 'f', "13列目(PV) に数式が設定されていません。"
+    assert ws.cell(row=3, column=14).data_type == 'f', "14列目(EV) に数式が設定されていません。"
+    assert ws.cell(row=3, column=15).data_type == 'f', "15列目(AC) に数式が設定されていません。"
     
     # 条件付き書式の存在確認 (SPI/CPI 等)
     assert len(ws.conditional_formatting) > 0, "条件付き書式が設定されていません。"

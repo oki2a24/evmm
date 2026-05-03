@@ -67,18 +67,19 @@ class TemplateGenerator:
         self.wb.defined_names.add(defn)
 
     def _create_wbs_evm_sheet(self):
-        """WBS_EVMシートを作成し、3フェーズ構造（フェーズごとの担当者分離）を構築する"""
+        """WBS_EVMシートを作成し、3フェーズ構造（担当者・リーダーを左端に配置）を構築する"""
         ws = self.wb.create_sheet("WBS_EVM")
         
         header_fill = PatternFill(start_color="CCE5FF", end_color="CCE5FF", fill_type="solid")
         header_font = Font(bold=True)
         alignment = Alignment(horizontal="center", vertical="center")
         
-        # 1フェーズ12列構成 (進捗率, EVM, 担当者, リーダー)
+        # 1フェーズ12列構成
+        # 4列目Dから開始
         phases = [
-            ("作成", 4, 15),           # D列(4)からO列(15)
-            ("レビュー実施", 16, 27),   # P列(16)からAA列(27)
-            ("レビュー後修正", 28, 39)  # AB列(28)からAM列(39)
+            ("作成", 4, 15),           # D(4)からO(15)
+            ("レビュー実施", 16, 27),   # P(16)からAA(27)
+            ("レビュー後修正", 28, 39)  # AB(28)からAM(39)
         ]
         
         for name, start_col, end_col in phases:
@@ -96,9 +97,11 @@ class TemplateGenerator:
             cell.font = header_font
             cell.fill = header_fill
             
+        # 担当・リーダーを左端に配置した列構成
         phase_cols = [
+            "担当メンバー", "チームリーダー",
             "開始日予定", "終了日予定", "工数予定", "開始日実績", "終了日実績", "工数実績",
-            "進捗率(%)", "PV (計画値)", "EV (出来高)", "AC (実績コスト)", "担当メンバー", "チームリーダー"
+            "進捗率(%)", "PV (計画値)", "EV (出来高)", "AC (実績コスト)"
         ]
         
         for i, phase in enumerate(phases):
@@ -114,26 +117,29 @@ class TemplateGenerator:
             for i, phase in enumerate(phases):
                 s_col = phase[1]
                 
-                plan_start = ws.cell(row=row, column=s_col).column_letter
-                plan_end = ws.cell(row=row, column=s_col+1).column_letter
-                plan_cost = ws.cell(row=row, column=s_col+2).column_letter
-                progress = ws.cell(row=row, column=s_col+6).column_letter
-                actual_cost_input = ws.cell(row=row, column=s_col+5).column_letter
+                # 担当: s_col(0), リーダー: s_col+1(1)
+                # 予定・実績・進捗・EVMの列記号を再計算
+                plan_start = ws.cell(row=row, column=s_col+2).column_letter
+                plan_end = ws.cell(row=row, column=s_col+3).column_letter
+                plan_cost = ws.cell(row=row, column=s_col+4).column_letter
+                progress = ws.cell(row=row, column=s_col+8).column_letter
+                actual_cost_input = ws.cell(row=row, column=s_col+7).column_letter
                 
-                # PV
+                # PV: s_col + 9
                 pv_formula = f'=IF(TODAY()<{plan_start}{row}, 0, IF(TODAY()>{plan_end}{row}, {plan_cost}{row}, {plan_cost}{row} * (TODAY()-{plan_start}{row})/({plan_end}{row}-{plan_start}{row}+1)))'
-                ws.cell(row=row, column=s_col+7, value=pv_formula)
+                ws.cell(row=row, column=s_col+9, value=pv_formula)
                 
-                # EV
+                # EV: s_col + 10
                 ev_formula = f'={plan_cost}{row} * {progress}{row}'
-                ws.cell(row=row, column=s_col+8, value=ev_formula)
+                ws.cell(row=row, column=s_col+10, value=ev_formula)
                 
-                # AC
+                # AC: s_col + 11
                 ac_formula = f'={actual_cost_input}{row}'
-                ws.cell(row=row, column=s_col+9, value=ac_formula)
+                ws.cell(row=row, column=s_col+11, value=ac_formula)
 
         red_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
-        for col in ["K", "W", "AI"]: # PV列の調整
+        # PV列 (作成: M(13), レビュー: Y(25), 修正: AK(37))
+        for col in ["M", "Y", "AK"]:
             ws.conditional_formatting.add(f"{col}3:{col}103", CellIsRule(operator='lessThan', formula=['0'], fill=red_fill))
 
     def _create_team_evm_sheet(self):
@@ -159,14 +165,14 @@ class TemplateGenerator:
                 cell.fill = header_fill
             current_row += 1
             
-            # 各フェーズの PV, EV, AC 列と リーダー列(s_col+11) を指定
-            # 作成: D-O(4-15) -> PV:K(11), リーダー:O(15)
-            # レビュー: P-AA(16-27) -> PV:W(23), リーダー:AA(27)
-            # 修正: AB-AM(28-39) -> PV:AI(35), リーダー:AM(39)
+            # 各フェーズの PV, EV, AC 列と リーダー列 を指定
+            # 作成: D(4)-O(15) -> リーダー:E(5), PV:M(13), EV:N(14), AC:O(15)
+            # レビュー: P(16)-AA(27) -> リーダー:Q(17), PV:Y(25), EV:Z(26), AC:AA(27)
+            # 修正: AB(28)-AM(39) -> リーダー:AC(29), PV:AK(37), EV:AL(38), AC:AM(39)
             phases_info = [
-                ("作成", "K", "L", "M", "O"), 
-                ("レビュー実施", "W", "X", "Y", "AA"), 
-                ("レビュー後修正", "AI", "AJ", "AK", "AM")
+                ("作成", "M", "N", "O", "E"), 
+                ("レビュー実施", "Y", "Z", "AA", "Q"), 
+                ("レビュー後修正", "AK", "AL", "AM", "AC")
             ]
             for phase_name, pv_col, ev_col, ac_col, leader_col in phases_info:
                 ws.cell(row=current_row, column=1, value=phase_name)
@@ -191,19 +197,17 @@ class TemplateGenerator:
             current_row += 1
             
             # メトリクス用の数式調整 (担当リーダー列に基づく)
-            # 作成(D-O): 予定工数:F(6), 終了日実績:I(9), リーダー:O(15)
-            # レビュー(P-AA): 予定工数:R(18), 終了日実績:U(21), リーダー:AA(27)
-            # 修正(AB-AM): 予定工数:AD(30), 終了日実績:AG(33), リーダー:AM(39)
+            # 作成: 予定工数:H(8), 終了日実績:K(11), リーダー:E(5)
+            # レビュー: 予定工数:T(20), 終了日実績:W(23), リーダー:Q(17)
+            # 修正: 予定工数:AF(32), 終了日実績:AI(35), リーダー:AC(29)
             metrics_info = [
-                ("作成", "F", "I", "O"), 
-                ("レビュー実施", "R", "U", "AA"), 
-                ("レビュー後修正", "AD", "AG", "AM")
+                ("作成", "H", "K", "E"), 
+                ("レビュー実施", "T", "W", "Q"), 
+                ("レビュー後修正", "AF", "AI", "AC")
             ]
             for p_name, cost_col, end_act_col, lead_col in metrics_info:
                 ws.cell(row=current_row, column=1, value=p_name)
-                # 総数
                 ws.cell(row=current_row, column=2, value=f'=COUNTIFS(WBS_EVM!${lead_col}:${lead_col}, "{leader}", WBS_EVM!${cost_col}:${cost_col}, ">0")')
-                # 完了(実績)
                 ws.cell(row=current_row, column=6, value=f'=COUNTIFS(WBS_EVM!${lead_col}:${lead_col}, "{leader}", WBS_EVM!${end_act_col}:${end_act_col}, "<>")')
                 current_row += 1
 
