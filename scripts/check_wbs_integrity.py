@@ -11,8 +11,12 @@ class WBSIntegrityChecker:
         self.errors = []
 
     def load_wbs(self):
-        """ExcelからWBSデータを読み込む。ヘッダー2行目を想定。"""
-        # WBS_EVMシートを読み込み、2行目(skiprows=1)をヘッダーとする
+        """
+        ExcelからWBSデータを読み込む。
+        【背景】テンプレートの構造上、1行目はフェーズ名（作成、レビュー等）、
+        2行目が具体的なカラム名（開始日予定等）となっているため、
+        skiprows=1 を指定して実質的なヘッダーを読み込んでいます。
+        """
         df = pd.read_excel(self.file_path, sheet_name='WBS_EVM', skiprows=1)
         return df
 
@@ -100,7 +104,6 @@ class WBSIntegrityChecker:
 
             # --- 3. フェーズ間順序性チェック ---
             if not pd.isna(e_p0) and not pd.isna(s_p1):
-                print(f"DEBUG_SEQ: {index=}, {e_p0=}, {s_p1=}, {e_p0 > s_p1=}")
                 if e_p0 > s_p1:
                     errors.append({"index": index, "message": f"作成フェーズの終了日({e_p0.date()})より前にレビューフェーズが開始({s_p1.date()})されています。"})
             
@@ -115,7 +118,14 @@ class WBSIntegrityChecker:
         return errors
 
     def run(self):
-        """実行メイン処理"""
+        """
+        実行メイン処理
+        【背景】表示する行番号に +3 している理由は以下の通りです：
+        1. pandasのインデックスは 0 から開始される。
+        2. Excelのヘッダーが 2行分存在する。
+        3. Excelの行番号は 1 から開始される。
+        したがって、0番目のデータ行は Excel上の 3行目に相当します。
+        """
         df = self.load_wbs()
         self.errors = self.check_dataframe(df)
         
@@ -124,7 +134,7 @@ class WBSIntegrityChecker:
         else:
             print(f"整合性チェック完了: {len(self.errors)} 件の問題が見つかりました。")
             for e in self.errors:
-                print(f"行 {e['index'] + 3}: {e['message']}") # Excel行番号に合わせる(+3)
+                print(f"行 {e['index'] + 3}: {e['message']}")
 
 if __name__ == "__main__":
     import sys
