@@ -117,6 +117,63 @@ class WBSIntegrityChecker:
 
         return errors
 
+    def write_results_to_excel(self):
+        """
+        チェック結果をExcelの「整合性チェック結果」列に書き戻す。
+
+        【設計意図】
+        結果の書き出しには pandas ではなく openpyxl を直接使用しています。
+        理由は、pandas.to_excel() を使用すると、既存のExcelファイル内の
+        複雑な数式、条件付き書式、罫線、名前定義などが全て失われてしまうためです。
+        openpyxl を使うことで、既存のレイアウトを完全に維持したまま、
+        特定のセルのみを「外科的」に更新することが可能です。
+        """
+        wb = openpyxl.load_workbook(self.file_path)
+        if 'WBS_EVM' not in wb.sheetnames:
+            print(f"ERROR: 'WBS_EVM' シートが見つかりません。")
+            return
+
+        ws = wb['WBS_EVM']
+
+        # 整合性チェック結果列のインデックスを特定（右端に追加）
+        # 2行目のヘッダーから「整合性チェック結果」列を探す
+        header_row = 2
+        last_col = ws.max_column
+        target_col = None
+
+        for c in range(1, last_col + 1):
+            if ws.cell(row=header_row, column=c).value == "整合性チェック結果":
+                target_col = c
+                break
+
+        if target_col is None:
+            target_col = last_col + 1
+            ws.cell(row=header_row, column=target_col).value = "整合性チェック結果"
+            # ヘッダーのスタイル（太字、中央揃え）を隣からコピー
+            source_cell = ws.cell(row=header_row, column=target_col - 1)
+            target_cell = ws.cell(row=header_row, column=target_col)
+            target_cell.font = openpyxl.styles.Font(bold=True)
+            target_cell.alignment = openpyxl.styles.Alignment(horizontal='center')
+            target_cell.fill = openpyxl.styles.PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
+
+        # 既存のエラーメッセージをクリア（3行目以降）
+        for r in range(3, ws.max_row + 1):
+            ws.cell(row=r, column=target_col).value = None
+
+        # エラーメッセージを書き込み
+        for e in self.errors:
+            excel_row = e['index'] + 3
+            current_val = ws.cell(row=excel_row, column=target_col).value
+            new_msg = e['message']
+            if current_val:
+                new_msg = f"{current_val} | {new_msg}"
+            ws.cell(row=excel_row, column=target_col).value = new_msg
+            # エラーがあるセルを赤字にする
+            ws.cell(row=excel_row, column=target_col).font = openpyxl.styles.Font(color="FF0000")
+
+        wb.save(self.file_path)
+        print(f"Excelにチェック結果を書き込みました: {self.file_path}")
+
     def run(self):
         """
         実行メイン処理
@@ -128,13 +185,17 @@ class WBSIntegrityChecker:
         """
         df = self.load_wbs()
         self.errors = self.check_dataframe(df)
-        
+
         if not self.errors:
             print("整合性チェック完了: 問題は見つかりませんでした。")
         else:
             print(f"整合性チェック完了: {len(self.errors)} 件の問題が見つかりました。")
             for e in self.errors:
                 print(f"行 {e['index'] + 3}: {e['message']}")
+
+        # 結果をExcelに書き戻す
+        self.write_results_to_excel()
+
 
 if __name__ == "__main__":
     import sys
