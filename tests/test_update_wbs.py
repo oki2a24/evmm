@@ -102,3 +102,28 @@ def test_update_wbs_atomicity(setup_excel):
 
     # 現状のバグ（原子性なし）では、保存後にチェックするため、99.0 に書き換わってしまっている
     assert final_effort == original_effort, f"エラーが発生したのにファイルが更新されてしまいました（{final_effort} != {original_effort}）"
+
+def test_update_wbs_with_date_and_progress(setup_excel):
+    """
+    新機能のテスト: 過去の日付指定および進捗率の指定。
+    F4のレビュー実施フェーズを 4/3 に 4.0h、進捗50%で更新する。
+    """
+    past_date = datetime(2026, 4, 3)
+    target_progress = 50.0
+    target_effort = 4.0
+
+    # 更新実行 (progress 引数が必要になるはず)
+    update_wbs_logic(setup_excel, func_id="F4", phase="レビュー実施", effort=target_effort, date=past_date, progress=target_progress)
+
+    # 検証
+    wb = openpyxl.load_workbook(setup_excel)
+    ws = wb['WBS_EVM']
+    # F4レビュー実施(occurrence=1)の終了日実績(V列=22), 工数実績(W列=23), 進捗率(X列=24)
+    updated_date = ws.cell(row=6, column=22).value
+    updated_effort = ws.cell(row=6, column=23).value
+    updated_progress = ws.cell(row=6, column=24).value
+    wb.close()
+
+    assert updated_date.date() == past_date.date()
+    assert updated_effort == target_effort
+    assert updated_progress == target_progress

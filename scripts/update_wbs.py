@@ -7,7 +7,7 @@ import shutil
 from datetime import datetime
 from scripts.check_wbs_integrity import WBSIntegrityChecker
 
-def update_wbs_logic(file_path, func_id, phase, effort, date=None):
+def update_wbs_logic(file_path, func_id, phase, effort, date=None, progress=100):
     """
     Excel WBSの特定の機能・フェーズを更新する。
 
@@ -109,7 +109,7 @@ def update_wbs_logic(file_path, func_id, phase, effort, date=None):
         
         ws.cell(row=excel_row, column=idx_ea + 1, value=date)
         ws.cell(row=excel_row, column=idx_ma + 1, value=effort)
-        ws.cell(row=excel_row, column=idx_pr + 1, value=100)
+        ws.cell(row=excel_row, column=idx_pr + 1, value=progress)
 
         wb.save(temp_path)
         wb.close()
@@ -136,11 +136,14 @@ if __name__ == "__main__":
     parser.add_argument('--id', required=True, help='機能ID')
     parser.add_argument('--phase', help='フェーズ (作成/レビュー実施/レビュー後修正)。省略時は進捗から自動判別。')
     parser.add_argument('--effort', type=float, required=True, help='実績工数')
+    parser.add_argument('--date', help='実績終了日 (YYYY-MM-DD)。省略時は今日。')
+    parser.add_argument('--progress', type=float, default=100, help='進捗率(%)。デフォルトは100。')
     parser.add_argument('--file', default='projects/test_project/hoge_wbs_evm.xlsx', help='Excelファイルパス')
     
     args = parser.parse_args()
     try:
-        update_wbs_logic(args.file, args.id, args.phase, args.effort)
+        update_date = datetime.strptime(args.date, '%Y-%m-%d') if args.date else None
+        update_wbs_logic(args.file, args.id, args.phase, args.effort, date=update_date, progress=args.progress)
         print(f"SUCCESS: {args.id} を更新しました。")
     except Exception as e:
         print(f"ERROR: {e}")
