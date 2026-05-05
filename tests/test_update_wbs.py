@@ -3,6 +3,7 @@ import openpyxl
 import pandas as pd
 import shutil
 import os
+from datetime import datetime
 from scripts.update_wbs import update_wbs_logic
 
 # テスト用のダミーWBSパス
@@ -68,3 +69,36 @@ def test_update_wbs_stateful(setup_excel):
     wb.close()
 
     assert updated_effort_review == new_effort_review
+
+def test_update_wbs_atomicity(setup_excel):
+    """
+    原子性のテスト: 
+    整合性エラーが発生するような状態で更新を試みた際、
+    例外が投げられ、かつ元のファイルが書き換わっていないことを確認する。
+    """
+    # 1. 事前にファイルを『壊れた』状態（開始日予定 > 終了日予定）にする
+    wb = openpyxl.load_workbook(setup_excel)
+    ws = wb['WBS_EVM']
+    # F1の開始日予定(F列=6)を終了日予定(G列=7)より後にする
+    ws.cell(row=3, column=6, value=datetime(2026, 12, 31))
+    ws.cell(row=3, column=7, value=datetime(2026, 1, 1))
+    
+    # 元の工数実績(K列=11)を記録
+    original_effort = ws.cell(row=3, column=11).value
+    wb.save(setup_excel)
+    wb.close()
+
+    # 2. 更新を試みる。内部で整合性チェックが走り、ValueError が出るはず。
+    with pytest.raises(ValueError) as excinfo:
+        update_wbs_logic(setup_excel, func_id="F1", phase="作成", effort=99.0)
+    
+    assert "整合性チェックエラー" in str(excinfo.value)
+
+    # 3. 重要: ファイルの工数実績が書き換わっていないことを確認
+    wb = openpyxl.load_workbook(setup_excel)
+    ws = wb['WBS_EVM']
+    final_effort = ws.cell(row=3, column=11).value
+    wb.close()
+
+    # 現状のバグ（原子性なし）では、保存後にチェックするため、99.0 に書き換わってしまっている
+    assert final_effort == original_effort, f"エラーが発生したのにファイルが更新されてしまいました（{final_effort} != {original_effort}）"
