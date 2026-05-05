@@ -127,3 +127,20 @@ def test_update_wbs_with_date_and_progress(setup_excel):
     assert updated_date.date() == past_date.date()
     assert updated_effort == target_effort
     assert updated_progress == target_progress
+
+def test_update_wbs_cli_help():
+    """
+    CLI インターフェースのテスト:
+    argparse の定義に誤り（例: エスケープされていない%）があると、
+    引数解析の準備段階で ValueError が発生する。
+    これを防ぐため、--help を呼び出して正常に終了することを確認する。
+    """
+    import subprocess
+    result = subprocess.run(
+        [".venv/bin/python3", "scripts/update_wbs.py", "--help"],
+        capture_output=True,
+        text=True
+    )
+    # 定義が壊れていると、ヘルプを表示する前にクラッシュ(exit code 1 または 2)する
+    assert result.returncode == 0, f"CLI がクラッシュしました: {result.stderr}"
+    assert "進捗率" in result.stdout

@@ -137,7 +137,7 @@ if __name__ == "__main__":
     parser.add_argument('--phase', help='フェーズ (作成/レビュー実施/レビュー後修正)。省略時は進捗から自動判別。')
     parser.add_argument('--effort', type=float, required=True, help='実績工数')
     parser.add_argument('--date', help='実績終了日 (YYYY-MM-DD)。省略時は今日。')
-    parser.add_argument('--progress', type=float, default=100, help='進捗率(%)。デフォルトは100。')
+    parser.add_argument('--progress', type=float, default=100, help='進捗率(%%)。デフォルトは100。')
     parser.add_argument('--file', default='projects/test_project/hoge_wbs_evm.xlsx', help='Excelファイルパス')
     
     args = parser.parse_args()
