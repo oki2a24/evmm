@@ -8,7 +8,8 @@ from scripts.update_wbs import update_wbs_logic
 
 # テスト用のダミーWBSパス
 TEST_EXCEL = "tests/test_data_update.xlsx"
-TEMPLATE_EXCEL = "projects/test_project/hoge_wbs_evm.xlsx"
+# 本番データ(hoge_wbs_evm.xlsx)に依存せず、固定のテスト用テンプレートを使用する
+TEMPLATE_EXCEL = "tests/data/wbs_template_for_testing.xlsx"
 
 @pytest.fixture
 def setup_excel():
@@ -25,11 +26,10 @@ def test_update_wbs_basic(setup_excel):
     """
     基本機能のテスト: F1の『作成』フェーズを工数3hで更新する。
     """
-    # 実行前の値を確認（F1, 作成, 工数実績は通常最初は空か別の値）
+    # 実行前の値を確認
     wb = openpyxl.load_workbook(setup_excel)
     ws = wb['WBS_EVM']
-    # F1は3行目(skiprows=1を考慮するとdfの0行目、Excelの3行目)
-    # 作成フェーズの工数実績はK列(11列目)
+    # F1は3行目
     original_effort = ws.cell(row=3, column=11).value
     wb.close()
 
@@ -41,11 +41,11 @@ def test_update_wbs_basic(setup_excel):
     wb = openpyxl.load_workbook(setup_excel)
     ws = wb['WBS_EVM']
     updated_effort = ws.cell(row=3, column=11).value
-    updated_progress = ws.cell(row=3, column=12).value # 進捗率 L列
+    updated_progress = ws.cell(row=3, column=12).value
     wb.close()
 
     assert updated_effort == new_effort
-    assert updated_progress == 100 # 完了報告なので100%を期待
+    assert updated_progress == 100
 
 def test_update_wbs_stateful(setup_excel):
     """
@@ -56,8 +56,7 @@ def test_update_wbs_stateful(setup_excel):
     # 1. まず『作成』を完了させる
     update_wbs_logic(setup_excel, func_id="F1", phase="作成", effort=2.0)
     
-    # 2. 次に phase を None (または自動判別を期待する値) で呼び出す
-    # ※ 現在のロジックは phase 指定が必須なので、ここで失敗するはず
+    # 2. 次に phase を None で呼び出す
     new_effort_review = 1.5
     update_wbs_logic(setup_excel, func_id="F1", phase=None, effort=new_effort_review)
 
@@ -79,29 +78,26 @@ def test_update_wbs_atomicity(setup_excel):
     # 1. 事前にファイルを『壊れた』状態（開始日予定 > 終了日予定）にする
     wb = openpyxl.load_workbook(setup_excel)
     ws = wb['WBS_EVM']
-    # F1の開始日予定(F列=6)を終了日予定(G列=7)より後にする
     ws.cell(row=3, column=6, value=datetime(2026, 12, 31))
     ws.cell(row=3, column=7, value=datetime(2026, 1, 1))
     
-    # 元の工数実績(K列=11)を記録
     original_effort = ws.cell(row=3, column=11).value
     wb.save(setup_excel)
     wb.close()
 
-    # 2. 更新を試みる。内部で整合性チェックが走り、ValueError が出るはず。
+    # 2. 更新を試みる。
     with pytest.raises(ValueError) as excinfo:
         update_wbs_logic(setup_excel, func_id="F1", phase="作成", effort=99.0)
     
     assert "整合性チェックエラー" in str(excinfo.value)
 
-    # 3. 重要: ファイルの工数実績が書き換わっていないことを確認
+    # 3. ファイルの工数実績が書き換わっていないことを確認
     wb = openpyxl.load_workbook(setup_excel)
     ws = wb['WBS_EVM']
     final_effort = ws.cell(row=3, column=11).value
     wb.close()
 
-    # 現状のバグ（原子性なし）では、保存後にチェックするため、99.0 に書き換わってしまっている
-    assert final_effort == original_effort, f"エラーが発生したのにファイルが更新されてしまいました（{final_effort} != {original_effort}）"
+    assert final_effort == original_effort
 
 def test_update_wbs_with_date_and_progress(setup_excel):
     """
@@ -112,14 +108,19 @@ def test_update_wbs_with_date_and_progress(setup_excel):
     target_progress = 50.0
     target_effort = 4.0
 
-    # 更新実行 (progress 引数が必要になるはず)
     update_wbs_logic(setup_excel, func_id="F4", phase="レビュー実施", effort=target_effort, date=past_date, progress=target_progress)
 
-    # 検証
     wb = openpyxl.load_workbook(setup_excel)
     ws = wb['WBS_EVM']
-    # F4レビュー実施(occurrence=1)の終了日実績(V列=22), 工数実績(W列=23), 進捗率(X列=24)
-    updated_date = ws.cell(row=6, column=22).value
+    # V=22, W=23, X=24
+    cell_val = ws.cell(row=6, column=22).value
+    # openpyxl がシリアル値(int)で返す場合は変換する
+    if isinstance(cell_val, int):
+        from openpyxl.utils.datetime import from_excel
+        updated_date = from_excel(cell_val)
+    else:
+        updated_date = cell_val
+
     updated_effort = ws.cell(row=6, column=23).value
     updated_progress = ws.cell(row=6, column=24).value
     wb.close()
@@ -128,12 +129,34 @@ def test_update_wbs_with_date_and_progress(setup_excel):
     assert updated_effort == target_effort
     assert updated_progress == target_progress
 
+def test_update_wbs_date_format(setup_excel):
+    """
+    書式設定のテスト:
+    日付を更新した際、セルの表示形式 (number_format) が継承されていることを確認する。
+    """
+    # 更新実行
+    update_wbs_logic(setup_excel, func_id="F1", phase="レビュー実施", effort=1.0)
+
+    wb = openpyxl.load_workbook(setup_excel)
+    ws = wb['WBS_EVM']
+    
+    # レビュー実施フェーズ：開始日実績(21列), 終了日実績(22列)
+    cell_sa = ws.cell(row=3, column=21) 
+    cell_ea = ws.cell(row=3, column=22) 
+    
+    # テンプレートで設定した期待されるフォーマット (m\月d\日)
+    expected_format = 'm\\月d\\日'
+    
+    fmt_sa = cell_sa.number_format
+    fmt_ea = cell_ea.number_format
+    wb.close()
+
+    assert fmt_sa == expected_format, f"開始日実績の書式が不正です: {fmt_sa}"
+    assert fmt_ea == expected_format, f"終了日実績の書式が不正です: {fmt_ea}"
+
 def test_update_wbs_cli_help():
     """
-    CLI インターフェースのテスト:
-    argparse の定義に誤り（例: エスケープされていない%）があると、
-    引数解析の準備段階で ValueError が発生する。
-    これを防ぐため、--help を呼び出して正常に終了することを確認する。
+    CLI インターフェースのテスト
     """
     import subprocess
     result = subprocess.run(
@@ -141,6 +164,5 @@ def test_update_wbs_cli_help():
         capture_output=True,
         text=True
     )
-    # 定義が壊れていると、ヘルプを表示する前にクラッシュ(exit code 1 または 2)する
-    assert result.returncode == 0, f"CLI がクラッシュしました: {result.stderr}"
+    assert result.returncode == 0
     assert "進捗率" in result.stdout

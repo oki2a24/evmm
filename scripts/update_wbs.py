@@ -32,31 +32,30 @@ def update_wbs_logic(file_path, func_id, phase, effort, date=None, progress=100)
        - 一時ファイルに対して更新・検証（整合性チェック）を行い、成功した場合のみ
          元のファイルを上書き。これにより、エラー時にファイルが不整合な状態で
          保存されることを物理的に防ぎ、憲法が定める「システムの整合性死守」を実現しています。
+    5. 書式の維持 (Formatting Preservation):
+       - 日付を書き込む際、openpyxl はデフォルトで標準日時形式を適用してしまいます。
+       - 既存の表示形式（m月d日等）を維持するため、同一行の「予定日」セルから 
+         number_format を継承する処理を導入しています。
     """
     if date is None:
         date = datetime.now()
 
     # 1. カラム位置の特定のために一度 pandas で読み込む
-    # テンプレート構造上、1行目はフェーズ名、2行目が具体的な項目名となっているため、skiprows=1 を指定
     df = pd.read_excel(file_path, sheet_name='WBS_EVM', skiprows=1)
     cols = df.columns.tolist()
 
     def get_col_idx(name, occurrence=0):
-        """
-        指定された項目名の N 番目の出現インデックスを返す。
-        正規表現により、pandasの自動サフィックス（.1, .2等）を許容。
-        """
         pattern = re.compile(rf"^{re.escape(name)}(\.\d+)?$")
         matches = [i for i, c in enumerate(cols) if pattern.match(str(c))]
         if len(matches) > occurrence:
             return matches[occurrence]
         return None
 
-    # フェーズの自動特定ロジック
+    # フェーズの自動特定
     if phase is None:
         idx_id_col = get_col_idx("機能ID")
-        idx_pr0 = get_col_idx("進捗率(%)", 0) # 作成フェーズ
-        idx_pr1 = get_col_idx("進捗率(%)", 1) # レビューフェーズ
+        idx_pr0 = get_col_idx("進捗率(%)", 0)
+        idx_pr1 = get_col_idx("進捗率(%)", 1)
         
         target_row = df[df.iloc[:, idx_id_col] == func_id]
         if target_row.empty:
@@ -66,7 +65,6 @@ def update_wbs_logic(file_path, func_id, phase, effort, date=None, progress=100)
         pr0 = row_data.iloc[idx_pr0] if not pd.isna(row_data.iloc[idx_pr0]) else 0
         pr1 = row_data.iloc[idx_pr1] if not pd.isna(row_data.iloc[idx_pr1]) else 0
         
-        # 依存関係に基づき、未完了の最初のフェーズを特定
         if pr0 < 100:
             phase = "作成"
         elif pr1 < 100:
@@ -74,26 +72,23 @@ def update_wbs_logic(file_path, func_id, phase, effort, date=None, progress=100)
         else:
             phase = "レビュー後修正"
 
-    # フェーズに応じた occurrence (0:作成, 1:レビュー, 2:修正)
     occurrence_map = {"作成": 0, "レビュー実施": 1, "レビュー後修正": 2}
     occ = occurrence_map.get(phase, 0)
 
-    # 更新対象のカラムインデックスを取得
     idx_id = get_col_idx("機能ID")
+    idx_sp = get_col_idx("開始日予定", occ) # 継承元
     idx_sa = get_col_idx("開始日実績", occ)
     idx_ea = get_col_idx("終了日実績", occ)
     idx_ma = get_col_idx("工数実績", occ)
     idx_pr = get_col_idx("進捗率(%)", occ)
 
-    # 2. 行の特定
     target_row_idx = df[df.iloc[:, idx_id] == func_id].index
     if target_row_idx.empty:
         raise ValueError(f"機能ID '{func_id}' が見つかりません。")
     
-    # Excel上での行番号: index + 3 (skiprows=1, header=2, Excelは1-based)
     excel_row = target_row_idx[0] + 3
 
-    # --- トランザクション処理 (Atomic Update) ---
+    # --- トランザクション処理 ---
     fd, temp_path = tempfile.mkstemp(suffix=".xlsx", dir=os.path.dirname(file_path))
     os.close(fd)
     
@@ -103,11 +98,23 @@ def update_wbs_logic(file_path, func_id, phase, effort, date=None, progress=100)
         wb = openpyxl.load_workbook(temp_path)
         ws = wb['WBS_EVM']
 
-        # 開始日が未入力なら今日の日付を設定
-        if ws.cell(row=excel_row, column=idx_sa + 1).value is None:
-            ws.cell(row=excel_row, column=idx_sa + 1, value=date)
+        # 書式（表示形式）を予定日セルから継承する
+        # ※ idx_sp (開始日予定) が見つからない場合はデフォルトの number_format を使用
+        date_format = "m/d" # フォールバック
+        if idx_sp is not None:
+            date_format = ws.cell(row=excel_row, column=idx_sp + 1).number_format
+
+        # 開始日実績の更新
+        cell_sa = ws.cell(row=excel_row, column=idx_sa + 1)
+        if cell_sa.value is None:
+            cell_sa.value = date
+            cell_sa.number_format = date_format
         
-        ws.cell(row=excel_row, column=idx_ea + 1, value=date)
+        # 終了日実績の更新
+        cell_ea = ws.cell(row=excel_row, column=idx_ea + 1)
+        cell_ea.value = date
+        cell_ea.number_format = date_format
+        
         ws.cell(row=excel_row, column=idx_ma + 1, value=effort)
         ws.cell(row=excel_row, column=idx_pr + 1, value=progress)
 
@@ -122,7 +129,7 @@ def update_wbs_logic(file_path, func_id, phase, effort, date=None, progress=100)
             error_msg = "\n".join([f"行 {e['index']+3}: {e['message']}" for e in errors])
             raise ValueError(f"整合性チェックエラーが発生しました。更新を中断します（ファイルは保護されました）:\n{error_msg}")
 
-        # 検証成功時のみ元のファイルを上書き
+        # 検証成功！上書き
         shutil.move(temp_path, file_path)
         return True
 

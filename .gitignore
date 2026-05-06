@@ -7,3 +7,4 @@ __pycache__/
 # Excel files
 *.xlsx
 !templates/master_template.xlsx
+!tests/data/wbs_template_for_testing.xlsx
