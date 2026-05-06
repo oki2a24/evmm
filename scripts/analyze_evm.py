@@ -75,7 +75,10 @@ class EVMAnalyst:
     def calculate_ev(self, planned_effort, progress_rate):
         """
         EV（Earned Value：出来高）を算出する。
-        EV = 工数予定 * 進捗率(%)
+        
+        :param planned_effort: 工数予定（人日）
+        :param progress_rate: 進捗率（%）
+        :return: 進捗に応じた出来高
         """
         if pd.isna(progress_rate):
             return 0.0
@@ -84,7 +87,9 @@ class EVMAnalyst:
     def calculate_ac(self, actual_effort):
         """
         AC（Actual Cost：実績コスト）を算出する。
-        本プロジェクトでは「工数実績」列の値をそのままACとして扱います。
+        本プロジェクトでは「工数実績」列に入力された人日をそのままACとして扱います。
+        
+        :param actual_effort: 工数実績（人日）
         """
         if pd.isna(actual_effort):
             return 0.0
@@ -93,36 +98,35 @@ class EVMAnalyst:
     def run(self):
         """
         分析のメイン実行フロー。
-        1. 整合性チェックの実行（必須）
-        2. データのロードと計算
-        3. Excelへの書き戻し
+        
+        【規律：分析前の整合性チェック】
+        プロジェクト憲法に基づき、計算を行う前に必ず WBSIntegrityChecker を実行します。
+        不整合なデータ（例：開始日が終了日より後）がある場合、誤ったCPI/SPIを
+        出力することを防ぐため、処理を中断します。
         """
         from scripts.check_wbs_integrity import WBSIntegrityChecker
         
-        # 1. 整合性チェックの実行
         print(f"--- 整合性チェックを開始します: {self.file_path} ---")
         checker = WBSIntegrityChecker(self.file_path)
         df = checker.load_wbs()
         errors = checker.check_dataframe(df)
         
         if errors:
-            # エラーがある場合はExcelに書き込んで中断
+            # エラーがある場合はExcelにエラー内容を書き込んで中断
             checker.errors = errors
             checker.write_results_to_excel()
             raise ValueError(f"整合性チェックでエラーが検出されました ({len(errors)}件)。修正してから再度実行してください。")
         
         print("整合性チェックOK。分析を開始します...")
 
-        # 2. データの計算
         results = []
         # 各フェーズ（0:作成, 1:レビュー, 2:修正）のデータを特定して計算
-        # pandasの読み込みカラム名と一致させる
         for index, row in df.iterrows():
-            # 機能IDが空の行はスキップ
+            # 機能IDが空の行はデータ行ではないとみなしてスキップ
             if pd.isna(row.get("機能ID")):
                 continue
 
-            # 各フェーズ（最大3フェーズを想定）について計算
+            # 最大3フェーズ（テンプレートの標準構造）をループ処理
             for phase_idx in range(3):
                 suffix = f".{phase_idx}" if phase_idx > 0 else ""
                 
@@ -132,8 +136,12 @@ class EVMAnalyst:
                 progress_col = f"進捗率(%){suffix}"
                 actual_col = f"工数実績{suffix}"
 
-                # カラムが存在するかチェック
+                # テンプレート構造が拡張され、カラムが存在しない場合はスキップ
                 if start_col not in df.columns:
+                    continue
+
+                # 予定が未入力の場合はPV計算ができないためスキップ
+                if pd.isna(row[start_col]) or pd.isna(row[end_col]):
                     continue
 
                 pv = self.calculate_pv(row[start_col], row[end_col], row[effort_col])
@@ -141,28 +149,36 @@ class EVMAnalyst:
                 ac = self.calculate_ac(row[actual_col])
 
                 results.append({
-                    "row": index + 3, # Excel行番号（Header 2行 + 0-index 1行 = +3）
+                    "row": index + 3, # Excel行番号（Header 2行 + 1-index = +3）
                     "pv": pv,
                     "ev": ev,
                     "ac": ac,
                     "phase_idx": phase_idx
                 })
 
-        # 3. Excelへの書き戻し
+        # 3. Excelへの書き戻し（外科的更新）
         self.write_results_to_excel(results)
+        
+        # 4. AIアナリスト向けのサマリーJSON出力
+        # このJSONは evm_analyst サブエージェントが診断を行う際の一次インプットとなります。
+        summary = self.get_summary_json(results)
+        import json
+        print("\n--- 分析集計結果 (JSON) ---")
+        print(json.dumps(summary, indent=2, ensure_ascii=False))
+        print("---------------------------\n")
+        
         print(f"分析が正常に完了しました。")
+        return summary
 
     def write_results_to_excel(self, results):
         """
         計算結果（PV, EV, AC）をExcelの該当セルに書き込む。
         
         【外科的更新の重要性】
-        既存のエクセルには複雑な数式や書式が含まれているため、pandas.to_excel() は使いません。
-        openpyxlを用いて、計算した数値のみをピンポイントでセルに流し込みます。
-        これにより、エクセルのダッシュボード機能（合計値の集計など）を活かしたまま、
-        正確なデータを提供できます。
-        
-        :param results: リスト形式の計算結果。各要素は {"row": 行番号, "pv": 値, "ev": 値, "ac": 値, "phase_idx": 0/1/2}
+        既存のエクセルには複雑な数式や書式（m月d日など）が含まれているため、
+        pandas.to_excel() を使用するとそれらが失われてしまいます。
+        openpyxlを用いて、計算した数値のみをピンポイントでセルに流し込むことで、
+        エクセルの見た目とダッシュボード機能を維持したまま正確なデータを提供します。
         """
         wb = openpyxl.load_workbook(self.file_path)
         if 'WBS_EVM' not in wb.sheetnames:
@@ -171,15 +187,11 @@ class EVMAnalyst:
         ws = wb['WBS_EVM']
         header_row = 2
         
-        # ヘッダーから列インデックスを動的に取得するためのマッピング
-        # カラム名のサフィックス（.1, .2）に対応するため、出現順序で管理します。
+        # ヘッダーから列インデックスを動的に取得
         def get_column_indices(target_name):
             indices = []
             for c in range(1, ws.max_column + 1):
                 val = ws.cell(row=header_row, column=c).value
-                # pandasが読み込む際のサフィックス形式（.1, .2等）ではなく、
-                # エクセル上の生の文字列を比較します。
-                # ただし、エクセル上では同じ名前が並んでいるだけなので、出現順にリスト化します。
                 if val == target_name:
                     indices.append(c)
             return indices
@@ -188,11 +200,11 @@ class EVMAnalyst:
         ev_cols = get_column_indices("EV (出来高)")
         ac_cols = get_column_indices("AC (実績コスト)")
 
-        # 結果を書き込み
         for res in results:
             row_idx = res["row"]
-            phase_idx = res.get("phase_idx", 0) # デフォルトは最初のフェーズ
+            phase_idx = res.get("phase_idx", 0)
             
+            # 各フェーズの列に順番に書き込み
             if phase_idx < len(pv_cols):
                 ws.cell(row=row_idx, column=pv_cols[phase_idx]).value = res["pv"]
             if phase_idx < len(ev_cols):
@@ -205,7 +217,7 @@ class EVMAnalyst:
 
     def get_summary_json(self, results):
         """
-        AIアナリスト向けの集計データ（JSON）を生成する。
+        全体の集計を行い、AIアナリスト向けのJSONデータを生成する。
         """
         total_pv = sum(r["pv"] for r in results)
         total_ev = sum(r["ev"] for r in results)
@@ -226,7 +238,30 @@ class EVMAnalyst:
             "alerts": []
         }
         
+        # 効率指標が 0.9 を下回った場合にアラートフラグを立てる
         if cpi < 0.9: summary["alerts"].append("COST_EFFICIENCY_LOW")
         if spi < 0.9: summary["alerts"].append("SCHEDULE_DELAYED")
         
         return summary
+
+if __name__ == "__main__":
+    import sys
+    import argparse
+    from datetime import datetime
+
+    parser = argparse.ArgumentParser(description='WBS/EVM 自動分析エンジン')
+    parser.add_argument('file_path', help='分析対象のエクセルファイルパス')
+    parser.add_argument('--date', help='分析基準日 (YYYY-MM-DD)。指定がない場合は今日。')
+    
+    args = parser.parse_args()
+    
+    status_date_val = None
+    if args.date:
+        try:
+            status_date_val = datetime.strptime(args.date, '%Y-%m-%d').date()
+        except ValueError:
+            print("エラー: 日付形式は YYYY-MM-DD で指定してください。")
+            sys.exit(1)
+    
+    analyst_obj = EVMAnalyst(args.file_path, status_date=status_date_val)
+    analyst_obj.run()
