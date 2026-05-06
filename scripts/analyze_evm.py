@@ -89,3 +89,116 @@ class EVMAnalyst:
         if pd.isna(actual_effort):
             return 0.0
         return float(actual_effort)
+
+    def run(self):
+        """
+        分析のメイン実行フロー。
+        1. 整合性チェックの実行（必須）
+        2. データのロードと計算
+        3. Excelへの書き戻し
+        """
+        from scripts.check_wbs_integrity import WBSIntegrityChecker
+        
+        # 1. 整合性チェックの実行
+        print(f"--- 整合性チェックを開始します: {self.file_path} ---")
+        checker = WBSIntegrityChecker(self.file_path)
+        df = checker.load_wbs()
+        errors = checker.check_dataframe(df)
+        
+        if errors:
+            # エラーがある場合はExcelに書き込んで中断
+            checker.errors = errors
+            checker.write_results_to_excel()
+            raise ValueError(f"整合性チェックでエラーが検出されました ({len(errors)}件)。修正してから再度実行してください。")
+        
+        print("整合性チェックOK。分析を開始します...")
+
+        # 2. データの計算
+        results = []
+        # 各フェーズ（0:作成, 1:レビュー, 2:修正）のデータを特定して計算
+        # pandasの読み込みカラム名と一致させる
+        for index, row in df.iterrows():
+            # 機能IDが空の行はスキップ
+            if pd.isna(row.get("機能ID")):
+                continue
+
+            # 各フェーズ（最大3フェーズを想定）について計算
+            for phase_idx in range(3):
+                suffix = f".{phase_idx}" if phase_idx > 0 else ""
+                
+                start_col = f"開始日予定{suffix}"
+                end_col = f"終了日予定{suffix}"
+                effort_col = f"工数予定{suffix}"
+                progress_col = f"進捗率(%){suffix}"
+                actual_col = f"工数実績{suffix}"
+
+                # カラムが存在するかチェック
+                if start_col not in df.columns:
+                    continue
+
+                pv = self.calculate_pv(row[start_col], row[end_col], row[effort_col])
+                ev = self.calculate_ev(row[effort_col], row[progress_col])
+                ac = self.calculate_ac(row[actual_col])
+
+                results.append({
+                    "row": index + 3, # Excel行番号（Header 2行 + 0-index 1行 = +3）
+                    "pv": pv,
+                    "ev": ev,
+                    "ac": ac,
+                    "phase_idx": phase_idx
+                })
+
+        # 3. Excelへの書き戻し
+        self.write_results_to_excel(results)
+        print(f"分析が正常に完了しました。")
+
+    def write_results_to_excel(self, results):
+        """
+        計算結果（PV, EV, AC）をExcelの該当セルに書き込む。
+        
+        【外科的更新の重要性】
+        既存のエクセルには複雑な数式や書式が含まれているため、pandas.to_excel() は使いません。
+        openpyxlを用いて、計算した数値のみをピンポイントでセルに流し込みます。
+        これにより、エクセルのダッシュボード機能（合計値の集計など）を活かしたまま、
+        正確なデータを提供できます。
+        
+        :param results: リスト形式の計算結果。各要素は {"row": 行番号, "pv": 値, "ev": 値, "ac": 値, "phase_idx": 0/1/2}
+        """
+        wb = openpyxl.load_workbook(self.file_path)
+        if 'WBS_EVM' not in wb.sheetnames:
+            raise ValueError("'WBS_EVM' シートが見つかりません。")
+            
+        ws = wb['WBS_EVM']
+        header_row = 2
+        
+        # ヘッダーから列インデックスを動的に取得するためのマッピング
+        # カラム名のサフィックス（.1, .2）に対応するため、出現順序で管理します。
+        def get_column_indices(target_name):
+            indices = []
+            for c in range(1, ws.max_column + 1):
+                val = ws.cell(row=header_row, column=c).value
+                # pandasが読み込む際のサフィックス形式（.1, .2等）ではなく、
+                # エクセル上の生の文字列を比較します。
+                # ただし、エクセル上では同じ名前が並んでいるだけなので、出現順にリスト化します。
+                if val == target_name:
+                    indices.append(c)
+            return indices
+
+        pv_cols = get_column_indices("PV (計画値)")
+        ev_cols = get_column_indices("EV (出来高)")
+        ac_cols = get_column_indices("AC (実績コスト)")
+
+        # 結果を書き込み
+        for res in results:
+            row_idx = res["row"]
+            phase_idx = res.get("phase_idx", 0) # デフォルトは最初のフェーズ
+            
+            if phase_idx < len(pv_cols):
+                ws.cell(row=row_idx, column=pv_cols[phase_idx]).value = res["pv"]
+            if phase_idx < len(ev_cols):
+                ws.cell(row=row_idx, column=ev_cols[phase_idx]).value = res["ev"]
+            if phase_idx < len(ac_cols):
+                ws.cell(row=row_idx, column=ac_cols[phase_idx]).value = res["ac"]
+
+        wb.save(self.file_path)
+        print(f"Excelへの計算結果反映が完了しました: {self.file_path}")

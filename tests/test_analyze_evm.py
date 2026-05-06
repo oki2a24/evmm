@@ -67,3 +67,60 @@ def test_calculate_ac():
     
     ac_none = analyst.calculate_ac(None)
     assert ac_none == 0.0
+
+def test_run_with_integrity_error(mocker):
+    """
+    整合性エラーがある場合に分析を中断することを検証。
+    【目的】壊れたデータに基づいた誤った分析結果を出力することを防ぐ。
+    """
+    from scripts.check_wbs_integrity import WBSIntegrityChecker
+    
+    # WBSIntegrityChecker.check_dataframe がエラーを返すようにモック
+    mocker.patch.object(WBSIntegrityChecker, 'load_wbs', return_value=None)
+    mocker.patch.object(WBSIntegrityChecker, 'check_dataframe', return_value=[{"index": 0, "message": "Error"}])
+    mocker.patch.object(WBSIntegrityChecker, 'write_results_to_excel', return_value=None)
+    
+    analyst = EVMAnalyst(file_path="dummy.xlsx")
+    
+    # 整合性エラーがある場合、ValueError を送出することを期待
+    with pytest.raises(ValueError, match="整合性チェックでエラーが検出されました"):
+        analyst.run()
+
+def test_write_results_to_excel(tmp_path):
+    """
+    Excelへの書き出しが正しく行われるかを検証。
+    【重要】既存の書式を壊さず、PV/EV/AC 列のみが更新されること。
+    """
+    import shutil
+    import openpyxl
+    from scripts.analyze_evm import EVMAnalyst
+    
+    # テスト用テンプレートを一時ディレクトリにコピー
+    template_path = "tests/data/wbs_template_for_testing.xlsx"
+    test_excel = tmp_path / "test_analyze.xlsx"
+    shutil.copy(template_path, test_excel)
+    
+    analyst = EVMAnalyst(file_path=str(test_excel), status_date=date(2026, 4, 7))
+    
+    # ダミーの計算結果
+    # 行3 (index 0) に PV=5.0, EV=2.0, AC=1.5 を書き込む想定
+    # カラム位置は通常 WBS の構造に依存
+    results = [
+        {"row": 3, "pv": 5.0, "ev": 2.0, "ac": 1.5}
+    ]
+    
+    analyst.write_results_to_excel(results)
+    
+    # 書き込み後のファイルを再読込して検証
+    wb = openpyxl.load_workbook(str(test_excel))
+    ws = wb['WBS_EVM']
+    
+    # カラム名を特定 (PV (計画値), EV (出来高), AC (実績コスト))
+    headers = [ws.cell(row=2, column=c).value for c in range(1, ws.max_column + 1)]
+    idx_pv = headers.index("PV (計画値)") + 1
+    idx_ev = headers.index("EV (出来高)") + 1
+    idx_ac = headers.index("AC (実績コスト)") + 1
+    
+    assert ws.cell(row=3, column=idx_pv).value == 5.0
+    assert ws.cell(row=3, column=idx_ev).value == 2.0
+    assert ws.cell(row=3, column=idx_ac).value == 1.5
