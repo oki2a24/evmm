@@ -202,3 +202,31 @@ class EVMAnalyst:
 
         wb.save(self.file_path)
         print(f"Excelへの計算結果反映が完了しました: {self.file_path}")
+
+    def get_summary_json(self, results):
+        """
+        AIアナリスト向けの集計データ（JSON）を生成する。
+        """
+        total_pv = sum(r["pv"] for r in results)
+        total_ev = sum(r["ev"] for r in results)
+        total_ac = sum(r["ac"] for r in results)
+        
+        cpi = total_ev / total_ac if total_ac > 0 else 1.0
+        spi = total_ev / total_pv if total_pv > 0 else 1.0
+        
+        summary = {
+            "status_date": str(self.status_date),
+            "metrics": {
+                "total_pv": round(total_pv, 2),
+                "total_ev": round(total_ev, 2),
+                "total_ac": round(total_ac, 2),
+                "cpi": round(cpi, 2),
+                "spi": round(spi, 2)
+            },
+            "alerts": []
+        }
+        
+        if cpi < 0.9: summary["alerts"].append("COST_EFFICIENCY_LOW")
+        if spi < 0.9: summary["alerts"].append("SCHEDULE_DELAYED")
+        
+        return summary
