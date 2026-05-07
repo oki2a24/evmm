@@ -135,6 +135,7 @@ class EVMAnalyst:
                 effort_col = f"工数予定{suffix}"
                 progress_col = f"進捗率(%){suffix}"
                 actual_col = f"工数実績{suffix}"
+                pv_col_name = f"PV (計画値){suffix}"
 
                 # テンプレート構造が拡張され、カラムが存在しない場合はスキップ
                 if start_col not in df.columns:
@@ -153,32 +154,28 @@ class EVMAnalyst:
                     "pv": pv,
                     "ev": ev,
                     "ac": ac,
+                    "excel_pv": row[pv_col_name], # エクセル上の現在値（比較用）
                     "phase_idx": phase_idx
                 })
 
         # 3. Excelへの書き戻し（外科的更新）
-        self.write_results_to_excel(results)
+        # 【重要】エクセルの数式を保護するため、デフォルトでは上書きを無効化します。
+        # 必要に応じて引数等で有効化できるよう設計上の余地を残します。
+        # self.write_results_to_excel(results)
         
         # 4. AIアナリスト向けのサマリーJSON出力
-        # このJSONは evm_analyst サブエージェントが診断を行う際の一次インプットとなります。
         summary = self.get_summary_json(results)
         import json
         print("\n--- 分析集計結果 (JSON) ---")
         print(json.dumps(summary, indent=2, ensure_ascii=False))
         print("---------------------------\n")
         
-        print(f"分析が正常に完了しました。")
+        print(f"分析が正常に完了しました。エクセルの数式は保護されました。")
         return summary
 
     def write_results_to_excel(self, results):
         """
         計算結果（PV, EV, AC）をExcelの該当セルに書き込む。
-        
-        【外科的更新の重要性】
-        既存のエクセルには複雑な数式や書式（m月d日など）が含まれているため、
-        pandas.to_excel() を使用するとそれらが失われてしまいます。
-        openpyxlを用いて、計算した数値のみをピンポイントでセルに流し込むことで、
-        エクセルの見た目とダッシュボード機能を維持したまま正確なデータを提供します。
         """
         wb = openpyxl.load_workbook(self.file_path)
         if 'WBS_EVM' not in wb.sheetnames:
@@ -187,7 +184,6 @@ class EVMAnalyst:
         ws = wb['WBS_EVM']
         header_row = 2
         
-        # ヘッダーから列インデックスを動的に取得
         def get_column_indices(target_name):
             indices = []
             for c in range(1, ws.max_column + 1):
@@ -204,7 +200,6 @@ class EVMAnalyst:
             row_idx = res["row"]
             phase_idx = res.get("phase_idx", 0)
             
-            # 各フェーズの列に順番に書き込み
             if phase_idx < len(pv_cols):
                 ws.cell(row=row_idx, column=pv_cols[phase_idx]).value = res["pv"]
             if phase_idx < len(ev_cols):
@@ -223,6 +218,19 @@ class EVMAnalyst:
         total_ev = sum(r["ev"] for r in results)
         total_ac = sum(r["ac"] for r in results)
         
+        # 乖離（Gap）の分析：エクセル値と計算値の差を特定
+        gaps = []
+        for r in results:
+            # 数値として比較可能な場合のみ
+            try:
+                e_pv = float(r["excel_pv"]) if not pd.isna(r["excel_pv"]) else 0.0
+                diff = abs(r["pv"] - e_pv)
+                if diff > 0.01: # わずかな誤差を除外
+                    gaps.append({"row": r["row"], "excel_pv": e_pv, "python_pv": r["pv"], "diff": diff})
+            except (ValueError, TypeError):
+                # 数式が入っている場合は float() 変換に失敗するが、それは「正常」
+                continue
+
         cpi = total_ev / total_ac if total_ac > 0 else 1.0
         spi = total_ev / total_pv if total_pv > 0 else 1.0
         
@@ -235,12 +243,16 @@ class EVMAnalyst:
                 "cpi": round(cpi, 2),
                 "spi": round(spi, 2)
             },
+            "gap_analysis": {
+                "count": len(gaps),
+                "details": gaps[:5] # 代表的な乖離のみ提示
+            },
             "alerts": []
         }
         
-        # 効率指標が 0.9 を下回った場合にアラートフラグを立てる
         if cpi < 0.9: summary["alerts"].append("COST_EFFICIENCY_LOW")
         if spi < 0.9: summary["alerts"].append("SCHEDULE_DELAYED")
+        if len(gaps) > 0: summary["alerts"].append("EXCEL_FORMULA_GAP_DETECTED")
         
         return summary
 

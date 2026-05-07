@@ -124,3 +124,38 @@ def test_write_results_to_excel(tmp_path):
     assert ws.cell(row=3, column=idx_pv).value == 5.0
     assert ws.cell(row=3, column=idx_ev).value == 2.0
     assert ws.cell(row=3, column=idx_ac).value == 1.5
+
+def test_run_does_not_overwrite_formulas(tmp_path):
+    """
+    run() を実行しても WBS シートの数式が数値で上書きされないことを検証。
+    【重要】エクセルの柔軟性（数式による自動計算）を維持するため。
+    """
+    import shutil
+    import openpyxl
+    from scripts.analyze_evm import EVMAnalyst
+    
+    # テスト用テンプレートを一時ディレクトリにコピー
+    template_path = "tests/data/wbs_template_for_testing.xlsx"
+    test_excel = tmp_path / "test_formula_protection.xlsx"
+    shutil.copy(template_path, test_excel)
+    
+    # 実行前の数式を確認
+    wb_pre = openpyxl.load_workbook(str(test_excel))
+    ws_pre = wb_pre['WBS_EVM']
+    # PV列（例：13列目）の3行目に数式が入っていることを確認
+    formula_pre = ws_pre.cell(row=3, column=13).value
+    assert isinstance(formula_pre, str) and formula_pre.startswith("=")
+    
+    # 分析を実行 (デフォルト設定)
+    analyst = EVMAnalyst(file_path=str(test_excel), status_date=date(2026, 4, 7))
+    analyst.run()
+    
+    # 実行後の数式を確認
+    wb_post = openpyxl.load_workbook(str(test_excel))
+    ws_post = wb_post['WBS_EVM']
+    formula_post = ws_post.cell(row=3, column=13).value
+    
+    # 数式が維持されている（文字列かつ '=' で始まる）ことを期待
+    # 現在の実装では数値に書き換わるため、ここで失敗するはず
+    assert isinstance(formula_post, str), f"数式が数値に上書きされました: {formula_post}"
+    assert formula_post.startswith("="), f"数式が失われました: {formula_post}"
