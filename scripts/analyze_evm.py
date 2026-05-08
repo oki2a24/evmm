@@ -110,6 +110,46 @@ class EVMAnalyst:
             total_bac += df[col].sum()
         return round(total_bac, 2)
 
+    def calculate_forecasts(self, bac, ev, ac, pv):
+        """
+        PMBOK公式に基づき、3つの予測シナリオを算出する。
+        
+        :param bac: 完成時総予算
+        :param ev: 出来高
+        :param ac: 実績コスト
+        :param pv: 計画値
+        :return: 3シナリオの辞書
+        """
+        cpi = ev / ac if ac > 0 else 1.0
+        spi = ev / pv if pv > 0 else 1.0
+        
+        # ゼロ除算防止のためのガードレール (最低効率を 0.01 に設定)
+        safe_cpi = max(cpi, 0.01)
+        safe_spi = max(spi, 0.01)
+        
+        # 1. 現実的 (Realistic): 現在の効率が継続
+        eac_r = bac / safe_cpi
+        
+        # 2. 楽観的 (Optimistic): 残りは計画通り
+        eac_o = ac + (bac - ev)
+        
+        # 3. 慎重 (Pessimistic): 現在の効率とスケジュールの両方を考慮
+        eac_p = ac + ((bac - ev) / (safe_cpi * safe_spi))
+        
+        def build_res(eac, desc):
+            return {
+                "eac": round(eac, 2),
+                "etc": round(max(eac - ac, 0), 2),
+                "vac": round(bac - eac, 2),
+                "description": desc
+            }
+            
+        return {
+            "realistic": build_res(eac_r, "現在の効率が継続した場合の予測"),
+            "optimistic": build_res(eac_o, "残作業を計画通りに遂行した場合"),
+            "pessimistic": build_res(eac_p, "現在の効率と遅延が相互に影響した場合")
+        }
+
     def run(self):
         """
         分析のメイン実行フロー。

@@ -195,3 +195,49 @@ def test_calculate_bac(tmp_path):
     bac = analyst.calculate_bac(df)
     
     assert bac == 18.0
+
+def test_calculate_forecasts():
+    """
+    将来予測（3シナリオ）の計算テスト。
+    PMBOK公式に基づき、EAC, ETC, VACが正しく算出されるか検証。
+    """
+    analyst = EVMAnalyst(file_path="dummy.xlsx")
+    
+    # テストデータ
+    bac = 100.0
+    ev = 40.0
+    ac = 50.0 # CPI = 40/50 = 0.8 (コスト超過)
+    pv = 50.0 # SPI = 40/50 = 0.8 (スケジュール遅延)
+    
+    forecasts = analyst.calculate_forecasts(bac, ev, ac, pv)
+    
+    # 1. 現実的 (Realistic): EAC = BAC / CPI = 100 / 0.8 = 125.0
+    # ETC = EAC - AC = 125.0 - 50.0 = 75.0
+    # VAC = BAC - EAC = 100.0 - 125.0 = -25.0
+    res = forecasts["realistic"]
+    assert res["eac"] == 125.0
+    assert res["etc"] == 75.0
+    assert res["vac"] == -25.0
+    
+    # 2. 楽観的 (Optimistic): EAC = AC + (BAC - EV) = 50.0 + (100.0 - 40.0) = 110.0
+    # ETC = 60.0, VAC = -10.0
+    opt = forecasts["optimistic"]
+    assert opt["eac"] == 110.0
+    assert opt["vac"] == -10.0
+    
+    # 3. 慎重 (Pessimistic): EAC = AC + [(BAC - EV) / (CPI * SPI)]
+    # EAC = 50.0 + [(100.0 - 40.0) / (0.8 * 0.8)] = 50.0 + [60.0 / 0.64] = 50.0 + 93.75 = 143.75
+    pes = forecasts["pessimistic"]
+    assert pes["eac"] == 143.75
+    assert pes["vac"] == -43.75
+
+def test_calculate_forecasts_zero_efficiency():
+    """効率が0（未着手または極端な効率低下）の場合のガードレール検証"""
+    analyst = EVMAnalyst(file_path="dummy.xlsx")
+    
+    # EV=0 (CPI=0) の場合、現実的/慎重モデルは無限大になるが、
+    # 実装上は極めて大きな値または特定の警告値を期待。
+    # ここではゼロ除算でクラッシュしないことを検証。
+    forecasts = analyst.calculate_forecasts(bac=100.0, ev=0.0, ac=10.0, pv=10.0)
+    assert forecasts["realistic"]["eac"] >= 1000.0 # ある程度の安全値または上限値
+    assert forecasts["optimistic"]["eac"] == 110.0 # 楽観的は影響を受けない
