@@ -219,7 +219,7 @@ class EVMAnalyst:
         # self.write_results_to_excel(results)
         
         # 4. AIアナリスト向けのサマリーJSON出力
-        summary = self.get_summary_json(results)
+        summary = self.get_summary_json(results, df)
         import json
         print("\n--- 分析集計結果 (JSON) ---")
         print(json.dumps(summary, indent=2, ensure_ascii=False))
@@ -265,7 +265,7 @@ class EVMAnalyst:
         wb.save(self.file_path)
         print(f"Excelへの計算結果反映が完了しました: {self.file_path}")
 
-    def get_summary_json(self, results):
+    def get_summary_json(self, results, df=None):
         """
         全体の集計を行い、AIアナリスト向けのJSONデータを生成する。
         """
@@ -305,6 +305,15 @@ class EVMAnalyst:
             "alerts": []
         }
         
+        # 将来予測 (Forecasting) の追加
+        if df is not None:
+            bac = self.calculate_bac(df)
+            forecasts = self.calculate_forecasts(bac, total_ev, total_ac, total_pv)
+            summary["forecasting"] = {
+                "bac": bac,
+                "scenarios": forecasts
+            }
+
         if cpi < 0.9: summary["alerts"].append("COST_EFFICIENCY_LOW")
         if spi < 0.9: summary["alerts"].append("SCHEDULE_DELAYED")
         if len(gaps) > 0: summary["alerts"].append("EXCEL_FORMULA_GAP_DETECTED")

@@ -241,3 +241,25 @@ def test_calculate_forecasts_zero_efficiency():
     forecasts = analyst.calculate_forecasts(bac=100.0, ev=0.0, ac=10.0, pv=10.0)
     assert forecasts["realistic"]["eac"] >= 1000.0 # ある程度の安全値または上限値
     assert forecasts["optimistic"]["eac"] == 110.0 # 楽観的は影響を受けない
+
+def test_get_summary_json_with_forecasting():
+    """get_summary_json が将来予測データを含むことを検証"""
+    analyst = EVMAnalyst(file_path="dummy.xlsx", status_date=date(2026, 5, 8))
+    
+    # ダミーの結果
+    results = [
+        {"pv": 50.0, "ev": 40.0, "ac": 50.0, "excel_pv": 50.0}
+    ]
+    
+    # calculate_bac をモックするか、実際の挙動をシミュレート
+    # 今回は run() を通さず get_summary_json を直接呼ぶ
+    # BAC の計算には df が必要なので、モックする
+    import pandas as pd
+    df_mock = pd.DataFrame({"工数予定": [100.0]})
+    
+    summary = analyst.get_summary_json(results, df_mock)
+    
+    assert "forecasting" in summary
+    assert summary["forecasting"]["bac"] == 100.0
+    assert "realistic" in summary["forecasting"]["scenarios"]
+    assert summary["forecasting"]["scenarios"]["realistic"]["eac"] == 125.0
