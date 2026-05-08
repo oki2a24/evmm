@@ -159,3 +159,39 @@ def test_run_does_not_overwrite_formulas(tmp_path):
     # 現在の実装では数値に書き換わるため、ここで失敗するはず
     assert isinstance(formula_post, str), f"数式が数値に上書きされました: {formula_post}"
     assert formula_post.startswith("="), f"数式が失われました: {formula_post}"
+
+def test_calculate_bac(tmp_path):
+    """
+    BAC (完成時総予算) 算出のテスト。
+    基準日に左右されず、WBS全体の「工数予定」が正しく合計されることを検証。
+    """
+    import shutil
+    import pandas as pd
+    from scripts.analyze_evm import EVMAnalyst
+
+    # テスト用テンプレートを一時ディレクトリにコピー
+    template_path = "tests/data/wbs_template_for_testing.xlsx"
+    test_excel = tmp_path / "test_bac.xlsx"
+    shutil.copy(template_path, test_excel)
+
+    # テストデータの準備: 工数予定(4列目)に値をセット
+    # テンプレート構造に基づき、工数予定は 8列目(H), 20列目(T), 32列目(AF) 等
+    import openpyxl
+    wb = openpyxl.load_workbook(str(test_excel))
+    ws = wb['WBS_EVM']
+    # 3行目: 作成(8列目)=10, レビュー(20列目)=2, 修正(32列目)=1 -> 計13
+    ws.cell(row=3, column=8, value=10.0)
+    ws.cell(row=3, column=20, value=2.0)
+    ws.cell(row=3, column=32, value=1.0)
+    # 4行目: 作成(8列目)=5 -> 計18
+    ws.cell(row=4, column=8, value=5.0)
+    wb.save(str(test_excel))
+
+    analyst = EVMAnalyst(file_path=str(test_excel))
+    
+    # まだメソッドが実装されていないため、ここで AttributeError またはエラーを期待 (RED)
+    # 内部的に DataFrame をロードして集計するロジックが必要
+    df = pd.read_excel(test_excel, sheet_name='WBS_EVM', header=1)
+    bac = analyst.calculate_bac(df)
+    
+    assert bac == 18.0

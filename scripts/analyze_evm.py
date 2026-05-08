@@ -95,6 +95,21 @@ class EVMAnalyst:
             return 0.0
         return float(actual_effort)
 
+    def calculate_bac(self, df):
+        """
+        BAC（Budget At Completion：完成時総予算）を算出する。
+        WBS全体の全フェーズの「工数予定」を合算します。
+        
+        :param df: WBSデータのDataFrame
+        :return: 総予算（人日）
+        """
+        total_bac = 0.0
+        # 「工数予定」で始まる全てのカラムを抽出して合算
+        effort_cols = [c for c in df.columns if str(c).startswith("工数予定")]
+        for col in effort_cols:
+            total_bac += df[col].sum()
+        return round(total_bac, 2)
+
     def run(self):
         """
         分析のメイン実行フロー。
