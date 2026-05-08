@@ -160,7 +160,7 @@ def test_update_wbs_cli_help():
     """
     import subprocess
     result = subprocess.run(
-        [".venv/bin/python3", "scripts/update_wbs.py", "--help"],
+        [".venv/bin/python3", "scripts/update_wbs.py", "--help"], env={"PYTHONPATH": "."},
         capture_output=True,
         text=True
     )

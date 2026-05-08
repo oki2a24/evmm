@@ -18,7 +18,7 @@ def test_check_date_reversal():
     }
     df = pd.DataFrame(data)
     
-    checker = WBSIntegrityChecker("dummy.xlsx")
+    checker = WBSIntegrityChecker("templates/master_template.xlsx")
     errors = checker.check_dataframe(df)
     
     # F2 (index 1) にエラーがあるはず
@@ -44,7 +44,7 @@ def test_missing_required_dates():
     }
     df = pd.DataFrame(data)
     
-    checker = WBSIntegrityChecker("dummy.xlsx")
+    checker = WBSIntegrityChecker("templates/master_template.xlsx")
     errors = checker.check_dataframe(df)
     
     assert any("開始日予定が未入力" in e["message"] for e in errors)
@@ -64,7 +64,7 @@ def test_check_workload_overload():
     }
     df = pd.DataFrame(data)
     
-    checker = WBSIntegrityChecker("dummy.xlsx")
+    checker = WBSIntegrityChecker("templates/master_template.xlsx")
     errors = checker.check_dataframe(df)
     
     assert any("工数予定(3.0)が稼働日数(2)を超過" in e["message"] for e in errors)
@@ -87,7 +87,7 @@ def test_check_phase_sequence():
     }
     df = pd.DataFrame(data)
     
-    checker = WBSIntegrityChecker("dummy.xlsx")
+    checker = WBSIntegrityChecker("templates/master_template.xlsx")
     errors = checker.check_dataframe(df)
     
     # メッセージに期待するキーワードが含まれているか確認
@@ -111,7 +111,7 @@ def test_check_actual_integrity():
     }
     df = pd.DataFrame(data)
     
-    checker = WBSIntegrityChecker("dummy.xlsx")
+    checker = WBSIntegrityChecker("templates/master_template.xlsx")
     errors = checker.check_dataframe(df)
     
     assert any("進捗率100%ですが、終了日実績が未入力" in e["message"] for e in errors)
