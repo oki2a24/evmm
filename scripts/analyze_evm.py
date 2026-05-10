@@ -361,5 +361,6 @@ if __name__ == "__main__":
             print("エラー: 日付形式は YYYY-MM-DD で指定してください。")
             sys.exit(1)
     
-    analyst_obj = EVMAnalyst(args.file_path, status_date=status_date_val)
-    analyst_obj.run()
+    # analyze_project エントリーポイントを使用することで、
+    # コンテキストの初期化を保証する。
+    analyze_project(args.file_path, status_date=status_date_val)
