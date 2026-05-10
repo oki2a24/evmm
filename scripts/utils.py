@@ -1,6 +1,7 @@
 import datetime
 import jpholiday
 import re
+import os
 from collections import Counter
 
 def get_working_days(start_date, end_date):
@@ -18,6 +19,27 @@ def get_working_days(start_date, end_date):
         current_date += datetime.timedelta(days=1)
         
     return working_days
+
+def ensure_project_context(project_path):
+    """
+    プロジェクトパスを受け取り、docs/context.md が存在しない場合は初期テンプレートで生成する。
+    """
+    docs_path = os.path.join(project_path, "docs")
+    context_path = os.path.join(docs_path, "context.md")
+    
+    # docs ディレクトリの作成
+    if not os.path.exists(docs_path):
+        os.makedirs(docs_path)
+        
+    # context.md の作成（存在しない場合のみ）
+    if not os.path.exists(context_path):
+        with open(context_path, "w", encoding="utf-8") as f:
+            f.write("# Project Context\n\n")
+            f.write("## 1. PJ特性 & 重要事項\n")
+            f.write("- (未定義)\n\n")
+            f.write("## 2. チーム / リソース状況\n")
+            f.write("- (未定義)\n\n")
+            f.write("## 3. 各タスクの背景・洞察\n")
 
 class FormulaIntegrityManager:
     """

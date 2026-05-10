@@ -1,6 +1,31 @@
 import datetime
 import pytest
-from scripts.utils import get_working_days
+import os
+import shutil
+from scripts.utils import get_working_days, ensure_project_context
+
+def test_ensure_project_context_creates_dir_and_file(tmp_path):
+    """
+    プロジェクトパスを渡し、docs/context.md が生成されることを検証する。
+    """
+    project_path = tmp_path / "test_project"
+    project_path.mkdir()
+    
+    context_path = project_path / "docs" / "context.md"
+    
+    # 実行前は存在しないことを確認
+    assert not context_path.exists()
+    
+    # 実行
+    ensure_project_context(str(project_path))
+    
+    # 実行後は存在し、初期内容が含まれていることを確認
+    assert context_path.exists()
+    content = context_path.read_text()
+    assert "# Project Context" in content
+    assert "## 1. PJ特性 & 重要事項" in content
+    assert "## 2. チーム / リソース状況" in content
+    assert "## 3. 各タスクの背景・洞察" in content
 
 def test_get_working_days_no_holidays():
     """
