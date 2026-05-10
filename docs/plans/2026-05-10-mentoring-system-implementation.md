@@ -53,20 +53,24 @@
 
 ---
 
-### タスク 3: AI アナリストへの運用規律の永続化 (Doc Integrity)
+### タスク 3: メンタリング規律のスキル本体への統合と一貫性担保
 
 **ファイル:**
-- 変更: `.gemini/observations/analyze-evm.md`
-- 変更: `.gemini/observations/update-wbs.md`
+- 変更: `.gemini/skills/analyze-evm/SKILL.md`
+- 削除: `.gemini/observations/analyze-evm.md`
+- 削除: `.gemini/observations/update-wbs.md`
 
-- [ ] **ステップ 1: [Act] Observations の更新**
-設計書に基づき、AI がコンテキストを読み書きする指示を具体的に記述する。
+- [ ] **ステップ 1: [Act] SKILL.md の更新**
+メンタリング規律（師匠・軍師モード、コンテキスト活用、レポート提示タイミング）をスキル本体へ統合する。
 
 - [ ] **ステップ 2: [Validate] 整合性検証**
-更新した Observations を読み込み、AI 自身が「新しい規律を正しく理解した」ことを、自分自身の言葉で要約して証明する。
+`writing-skills` に基づく TDD サイクル（圧力シナリオテスト）を実行し、AI が誘惑や圧力に屈せず規律を守ることを物理的に確認する。
 
-- [ ] **ステップ 3: コミット**
-`git add .gemini/observations/ && git commit -m "feat: AIアナリストにコンテキスト運用の規律を追加"`
+- [ ] **ステップ 3: [Cleanup] Observations の削除**
+本体へ統合された重複する知見ファイルを削除し、SSOT を維持する。
+
+- [ ] **ステップ 4: コミット**
+`git add .gemini/skills/ && git rm .gemini/observations/analyze-evm.md .gemini/observations/update-wbs.md && git commit -m "feat: メンタリング規律を analyze-evm スキル本体に統合"`
 
 ---
 
