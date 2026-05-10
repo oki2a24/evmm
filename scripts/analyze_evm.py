@@ -1,7 +1,8 @@
 import pandas as pd
 import openpyxl
+import os
 from datetime import date, datetime
-from scripts.utils import get_working_days
+from scripts.utils import get_working_days, ensure_project_context
 
 """
 EVM分析エンジン (EVMAnalyst)
@@ -32,6 +33,13 @@ class EVMAnalyst:
         # 内部で扱う日付は比較のために datetime.date 型に統一します
         if isinstance(self.status_date, datetime):
             self.status_date = self.status_date.date()
+
+        # プロジェクトのメタデータ（コンテキストパスなど）
+        self.project_path = os.path.dirname(os.path.abspath(file_path))
+        self.metadata = {
+            "project_path": self.project_path,
+            "context_path": os.path.join(self.project_path, "docs", "context.md")
+        }
 
     def calculate_pv(self, start_date, end_date, planned_effort):
         """
@@ -291,6 +299,7 @@ class EVMAnalyst:
         
         summary = {
             "status_date": str(self.status_date),
+            "metadata": self.metadata,  # メタデータを追加
             "metrics": {
                 "total_pv": round(total_pv, 2),
                 "total_ev": round(total_ev, 2),
@@ -319,6 +328,19 @@ class EVMAnalyst:
         if len(gaps) > 0: summary["alerts"].append("EXCEL_FORMULA_GAP_DETECTED")
         
         return summary
+
+def analyze_project(file_path, status_date=None):
+    """
+    プロジェクトの分析を実行するエントリーポイント関数。
+    コンテキスト基盤の自動生成・補完を保証する。
+    """
+    # プロジェクトパスの特定とコンテキスト初期化
+    project_path = os.path.dirname(os.path.abspath(file_path))
+    ensure_project_context(project_path)
+    
+    # 分析の実行
+    analyst = EVMAnalyst(file_path, status_date=status_date)
+    return analyst.run()
 
 if __name__ == "__main__":
     import sys

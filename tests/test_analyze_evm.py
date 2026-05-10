@@ -1,19 +1,36 @@
 import pytest
+import os
 from datetime import date
-from scripts.analyze_evm import EVMAnalyst
+from scripts.analyze_evm import EVMAnalyst, analyze_project
 
-"""
-EVM分析エンジンのテストコード
+def test_analyze_project_integrates_context_initialization(mocker, tmp_path):
+    """
+    analyze_project を実行した際、プロジェクトコンテキストの初期化が行われ、
+    メタデータにパスが含まれることを検証する。
+    """
+    test_excel = tmp_path / "test_pj" / "dummy.xlsx"
+    test_excel.parent.mkdir()
+    test_excel.touch()
 
-【テストの目的】
-本テストは、EVMにおけるPV（Planned Value: 計画値）の計算が、
-PMBOK理論に基づき、かつ「稼働日（土日祝日を除く）」を考慮して
-正しく線形按分されることを物理的に証明します。
-
-【設計上の注意】
-- 稼働日計算には既存の scripts/utils.py のロジックを利用することを前提とします。
-- 基準日（Status Date）がタスク期間外（開始前、終了後）の場合の境界値も検証します。
-"""
+    # ensure_project_context をモック
+    mock_ensure = mocker.patch("scripts.analyze_evm.ensure_project_context")
+    
+    # ダミー의 WBS データを返すように EVMAnalyst.run をモック
+    mocker.patch.object(EVMAnalyst, "run", return_value={
+        "status_date": "2026-05-10",
+        "metadata": {"context_path": str(test_excel.parent / "docs" / "context.md")},
+        "metrics": {"total_pv": 10.0}
+    })
+    
+    result = analyze_project(str(test_excel))
+    
+    # ensure_project_context が正しいプロジェクトパスで呼ばれたか
+    mock_ensure.assert_called_once_with(str(test_excel.parent))
+    
+    # メタデータに context_path が含まれているか
+    assert "metadata" in result
+    assert result["metadata"]["context_path"] == str(test_excel.parent / "docs" / "context.md")
+    assert result["metrics"]["total_pv"] == 10.0
 
 def test_calculate_pv_linear():
     """
