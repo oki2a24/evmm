@@ -1,3 +1,4 @@
+from typing import Dict, List, Optional, Any
 import pandas as pd
 import openpyxl
 import re
@@ -24,25 +25,79 @@ class WBSConfigManager:
         "ac": [r"AC", r"実績コスト"]
     }
 
-    def __init__(self, file_path, sheet_name='WBS_EVM'):
+    def __init__(self, file_path: str, sheet_name: str = 'WBS_EVM'):
         self.file_path = file_path
         self.sheet_name = sheet_name
-        self.config_path = os.path.join(os.path.dirname(file_path), "wbs_structure.json")
-        self.config = None
+        self.config_path = os.path.join(os.path.dirname(os.path.abspath(file_path)), "wbs_structure.json")
+        self.config: Optional[Dict[str, Any]] = None
 
-    def infer_structure(self):
+    def load_or_infer(self, interactive: bool = True) -> Dict[str, Any]:
+        """
+        設定ファイルを読み込む。存在しないか構造が変更されている場合は推論と対話を行う。
+        """
+        if os.path.exists(self.config_path):
+            with open(self.config_path, "r", encoding="utf-8") as f:
+                self.config = json.load(f)
+            
+            # 構造の生存確認
+            if self._validate_current_config():
+                return self.config
+            else:
+                print("WBS構造が変更されたようです。再マッピングを行います。")
+
+        # 推論実行
+        inferred = self.infer_structure()
+        
+        if interactive:
+            self.config = self._interactive_refine(inferred)
+            self.save_config()
+        else:
+            self.config = inferred
+            
+        return self.config
+
+    def _validate_current_config(self) -> bool:
+        """
+        現在の設定が実際のエクセルファイルと一致するか確認する。
+        """
+        if not self.config:
+            return False
+            
+        wb = openpyxl.load_workbook(self.file_path, read_only=True, data_only=True)
+        if self.sheet_name not in wb.sheetnames:
+            return False
+        
+        ws = wb[self.sheet_name]
+        h_row = self.config["header_row"]
+        
+        # 1. 共通項目のチェック
+        common = self.config["columns"]["common"]
+        for role, info in common.items():
+            cell_val = str(ws.cell(row=h_row, column=info["index"] + 1).value)
+            if info["name"] not in cell_val:
+                return False
+        
+        # 2. フェーズ項目のチェック (レビュアー指摘: バリデーション範囲の拡大)
+        for p in self.config["columns"]["phases"]:
+            for role, info in p["mapping"].items():
+                cell_val = str(ws.cell(row=h_row, column=info["index"] + 1).value)
+                if info["name"] not in cell_val:
+                    return False
+                
+        return True
+
+    def infer_structure(self) -> Dict[str, Any]:
         """
         エクセルのヘッダーをスキャンし、構造を推論する。
         """
-        # ヘッダー特定のために最初の数行を読み込む
         wb = openpyxl.load_workbook(self.file_path, read_only=True, data_only=True)
         if self.sheet_name not in wb.sheetnames:
             raise ValueError(f"Sheet '{self.sheet_name}' not found.")
         
         ws = wb[self.sheet_name]
-        rows = list(ws.iter_rows(min_row=1, max_row=5, values_only=True))
+        # レビュアー指摘: スキャン範囲を拡張 (20行)
+        rows = list(ws.iter_rows(min_row=1, max_row=20, values_only=True))
         
-        # 1. ヘッダー行の特定 (ID列がある行を探す)
         header_row_idx = -1
         for i, row in enumerate(rows):
             if any(re.search(p, str(cell)) for cell in row if cell for p in self.DEFAULT_ROLES["id"]):
@@ -53,8 +108,15 @@ class WBSConfigManager:
             raise ValueError("Could not find header row (ID column missing).")
 
         header_row = rows[header_row_idx]
-        # フェーズ行（ヘッダーの上の行）があるか確認
-        phase_row = rows[header_row_idx - 1] if header_row_idx > 0 else [None] * len(header_row)
+        
+        # 2. フェーズ行の特定 (レビュアー指摘: 上方向にスキャンして非空行を探す)
+        phase_row_idx = -1
+        for i in range(header_row_idx - 1, -1, -1):
+            if any(str(cell).strip() for cell in rows[i] if cell):
+                phase_row_idx = i
+                break
+        
+        phase_row = rows[phase_row_idx] if phase_row_idx != -1 else [None] * len(header_row)
 
         config = {
             "sheet_name": self.sheet_name,
@@ -66,7 +128,7 @@ class WBSConfigManager:
             }
         }
 
-        # 2. カラムの分類
+
         current_phase = None
         phase_data = None
 
@@ -74,14 +136,12 @@ class WBSConfigManager:
             if col_name is None: continue
             col_name = str(col_name)
 
-            # フェーズの切り替わり検知
             if p_name and str(p_name).strip():
                 if phase_data:
                     config["columns"]["phases"].append(phase_data)
                 current_phase = str(p_name).strip()
                 phase_data = {"name": current_phase, "mapping": {}}
 
-            # 役割の推論
             matched_role = None
             for role, patterns in self.DEFAULT_ROLES.items():
                 if any(re.search(p, col_name) for p in patterns):
@@ -89,25 +149,64 @@ class WBSConfigManager:
                     break
             
             if matched_role:
+                # レビュアー指摘: インデックス (0-based) も保持
+                info = {"name": col_name, "index": i}
                 if matched_role in ["id", "name"]:
-                    config["columns"]["common"][matched_role] = col_name
+                    config["columns"]["common"][matched_role] = info
                 elif phase_data:
-                    # 同じ役割が複数回出てくる場合は、出現順にマッピングされる
                     if matched_role not in phase_data["mapping"]:
-                        phase_data["mapping"][matched_role] = col_name
+                        phase_data["mapping"][matched_role] = info
 
         if phase_data:
             config["columns"]["phases"].append(phase_data)
 
-        self.config = config
         return config
 
-    def get_column_index(self, role, phase_idx=0):
+    def _interactive_refine(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """
-        役割とフェーズインデックスから列インデックス(0-based)を取得する。
+        推論結果をユーザーに提示し、必要に応じて修正を受け付ける。
         """
-        if not self.config:
-            self.infer_structure()
+        print("\n--- WBS構造の解析結果 ---")
+        print(f"シート名: {config['sheet_name']}")
+        print(f"ヘッダー行: {config['header_row']}")
+        
+        print("\n[共通項目]")
+        for role, info in config["columns"]["common"].items():
+            print(f"  - {role}: {info['name']} (列 {info['index']+1})")
             
-        # TODO: 実際の実装では JSON から読み込むロジックが必要
-        return 0 # プレースホルダー
+        print("\n[フェーズ構成]")
+        for p in config["columns"]["phases"]:
+            print(f"  フェーズ: {p['name']}")
+            for role, info in p["mapping"].items():
+                print(f"    - {role}: {info['name']} (列 {info['index']+1})")
+        
+        ans = input("\nこのマッピングでよろしいですか？ (Y/n): ").lower()
+        if ans == 'n':
+            print("申し訳ありません。現在は自動推論のみをサポートしています。")
+            print("エクセルのカラム名を標準的な名称（機能ID, 開始日予定等）に変更して再試行してください。")
+            # 本来はここで詳細な修正UIを提供すべきだが、まずは簡易化
+            
+        return config
+
+    def save_config(self):
+        """設定をJSONに保存する。"""
+        if not self.config: return
+        with open(self.config_path, "w", encoding="utf-8") as f:
+            json.dump(self.config, f, indent=2, ensure_ascii=False)
+        print(f"設定を保存しました: {self.config_path}")
+
+    def get_column_index(self, role: str, phase_idx: int = 0) -> int:
+        """役割とフェーズインデックスから列インデックス(0-based)を取得する。"""
+        if not self.config:
+            self.load_or_infer(interactive=False)
+            
+        if role in self.config["columns"]["common"]:
+            return self.config["columns"]["common"][role]["index"]
+        
+        if phase_idx < len(self.config["columns"]["phases"]):
+            mapping = self.config["columns"]["phases"][phase_idx]["mapping"]
+            if role in mapping:
+                return mapping[role]["index"]
+        
+        raise ValueError(f"Role '{role}' not found in phase {phase_idx}.")
+
