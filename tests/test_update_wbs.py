@@ -8,6 +8,8 @@ from scripts.update_wbs import update_wbs_logic
 
 # テスト用のダミーWBSパス
 TEST_EXCEL = "tests/test_data_update.xlsx"
+# マッピングファイルパス
+TEST_CONFIG = "tests/wbs_structure.json"
 # 本番データ(hoge_wbs_evm.xlsx)に依存せず、固定のテスト用テンプレートを使用する
 TEMPLATE_EXCEL = "tests/data/wbs_template_for_testing.xlsx"
 
@@ -21,6 +23,8 @@ def setup_excel():
     # テスト後に削除
     if os.path.exists(TEST_EXCEL):
         os.remove(TEST_EXCEL)
+    if os.path.exists(TEST_CONFIG):
+        os.remove(TEST_CONFIG)
 
 def test_update_wbs_basic(setup_excel):
     """
@@ -35,7 +39,7 @@ def test_update_wbs_basic(setup_excel):
 
     # 更新実行
     new_effort = 3.0
-    update_wbs_logic(setup_excel, func_id="F1", phase="作成", effort=new_effort)
+    update_wbs_logic(setup_excel, func_id="F1", phase="作成", effort=new_effort, interactive=False)
 
     # 実行後の値を確認
     wb = openpyxl.load_workbook(setup_excel)
@@ -54,11 +58,11 @@ def test_update_wbs_stateful(setup_excel):
     2. phaseを指定せずに呼び出した場合、自動的に次の『レビュー実施』が更新されることを確認する。
     """
     # 1. まず『作成』を完了させる
-    update_wbs_logic(setup_excel, func_id="F1", phase="作成", effort=2.0)
+    update_wbs_logic(setup_excel, func_id="F1", phase="作成", effort=2.0, interactive=False)
     
     # 2. 次に phase を None で呼び出す
     new_effort_review = 1.5
-    update_wbs_logic(setup_excel, func_id="F1", phase=None, effort=new_effort_review)
+    update_wbs_logic(setup_excel, func_id="F1", phase=None, effort=new_effort_review, interactive=False)
 
     # 3. 『レビュー実施』の列(occurrence=1)が更新されているか確認
     # レビュー実施フェーズの工数実績は W列(23列目)
@@ -87,7 +91,7 @@ def test_update_wbs_atomicity(setup_excel):
 
     # 2. 更新を試みる。
     with pytest.raises(ValueError) as excinfo:
-        update_wbs_logic(setup_excel, func_id="F1", phase="作成", effort=99.0)
+        update_wbs_logic(setup_excel, func_id="F1", phase="作成", effort=99.0, interactive=False)
     
     assert "整合性チェックエラー" in str(excinfo.value)
 
@@ -108,7 +112,7 @@ def test_update_wbs_with_date_and_progress(setup_excel):
     target_progress = 50.0
     target_effort = 4.0
 
-    update_wbs_logic(setup_excel, func_id="F4", phase="レビュー実施", effort=target_effort, date=past_date, progress=target_progress)
+    update_wbs_logic(setup_excel, func_id="F4", phase="レビュー実施", effort=target_effort, date=past_date, progress=target_progress, interactive=False)
 
     wb = openpyxl.load_workbook(setup_excel)
     ws = wb['WBS_EVM']
@@ -135,7 +139,7 @@ def test_update_wbs_date_format(setup_excel):
     日付を更新した際、セルの表示形式 (number_format) が継承されていることを確認する。
     """
     # 更新実行
-    update_wbs_logic(setup_excel, func_id="F1", phase="レビュー実施", effort=1.0)
+    update_wbs_logic(setup_excel, func_id="F1", phase="レビュー実施", effort=1.0, interactive=False)
 
     wb = openpyxl.load_workbook(setup_excel)
     ws = wb['WBS_EVM']
