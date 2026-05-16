@@ -18,19 +18,20 @@ class WBSConfigManager:
     """
     
     DEFAULT_ROLES = {
-        "id": [r"機能ID", r"ID"],
-        "name": [r"機能名称", r"タスク名", r"名称"],
-        "plan_start": [r"開始日予定", r"予定開始日", r"開始予定"],
-        "plan_end": [r"終了日予定", r"予定終了日", r"終了予定"],
-        "plan_effort": [r"工数予定", r"予定工数", r"見積工数"],
-        "actual_start": [r"開始日実績", r"実績開始日", r"開始実績"],
-        "actual_end": [r"終了日実績", r"実績終了日", r"終了実績"],
-        "actual_effort": [r"工数実績", r"実績工数"],
-        "progress": [r"進捗率", r"進捗"],
+        "id": [r"機能ID", r"ID", r"識別子"],
+        "name": [r"機能名称", r"タスク名", r"名称", r"項目名"],
+        "plan_start": [r"開始日予定", r"予定開始日", r"開始予定", r"作業開始", r"着手日"],
+        "plan_end": [r"終了日予定", r"予定終了日", r"終了予定", r"期限", r"デッドライン", r"完了予定"],
+        "plan_effort": [r"工数予定", r"予定工数", r"見積工数", r"予定人日"],
+        "actual_start": [r"開始日実績", r"実績開始日", r"開始実績", r"着手実績"],
+        "actual_end": [r"終了日実績", r"実績終了日", r"終了実績", r"完了実績"],
+        "actual_effort": [r"工数実績", r"実績工数", r"実工数"],
+        "progress": [r"進捗率", r"進捗", r"達成率"],
         "pv": [r"PV", r"計画値"],
         "ev": [r"EV", r"出来高"],
         "ac": [r"AC", r"実績コスト"]
     }
+
 
     def __init__(self, file_path: str, sheet_name: str = 'WBS_EVM'):
         self.file_path = file_path
@@ -194,12 +195,17 @@ class WBSConfigManager:
             for role, info in p["mapping"].items():
                 print(f"    - {role}: {info['name']} (列 {info['index']+1})")
         
-        ans = input("\nこのマッピングでよろしいですか？ (Y/n): ").lower()
+        ans = input("\nこのマッピングでよろしいですか？ (Y/n) ※nを入力すると手動設定ガイドを表示します: ").lower()
         if ans == 'n':
-            print("申し訳ありません。現在は自動推論のみをサポートしています。")
-            print("エクセルのカラム名を標準的な名称（機能ID, 開始日予定等）に変更して再試行してください。")
+            print("\n【手動設定ガイド】")
+            print("推論が外れている場合は、エクセルのカラム名を以下のいずれかに含めるように修正してください。")
+            for role, patterns in self.DEFAULT_ROLES.items():
+                print(f"  - {role:12}: {', '.join(patterns)}")
+            print("\n名称を修正後、再度実行してください。")
+            # 本来はここで詳細な修正UIを提供すべきだが、まずは名称変更を促すことでSSOTを維持
             
         return config
+
 
     def save_config(self):
         """設定をJSONに保存する。"""
