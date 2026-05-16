@@ -6,8 +6,16 @@ from scripts.check_wbs_integrity import WBSIntegrityChecker
 
 @pytest.fixture
 def temp_checker(tmp_path):
-    """テストデータに合わせたマッピングを持つチェッカーを作成する"""
+    """
+    テストデータに合わせたマッピングを持つチェッカーを作成する。
+
+    【テスト設計の重要事項】
+    WBSConfigManager はフェーズ行（1行目）とヘッダー行（2行目）の相対関係で
+    マッピングを推論します。テストで期待通りのインデックスを取得するためには、
+    この2行の構造を正確に模倣したエクセルファイルを生成する必要があります。
+    """
     def _create(df_headers):
+
         file_path = tmp_path / "test_check.xlsx"
         df = pd.DataFrame([
             df_headers[0],

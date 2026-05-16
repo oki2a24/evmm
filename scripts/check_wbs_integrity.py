@@ -44,12 +44,17 @@ class WBSIntegrityChecker:
                 continue
 
             # --- 1. 日付の前後関係と工数超過チェック ---
+            # 【堅牢な設計 (Robust Design)】
+            # 特定の項目（例：工数予定）がマッピングに存在しなくても、可能な範囲で
+            # 日付のチェック等を続行します。これにより、全ての項目が埋まっていない
+            # 開発途中の WBS に対しても有益なフィードバックを提供できます。
             prev_end = None
             for i, p in enumerate(phases):
                 # 個別の項目を安全に取得
                 def get_idx(role):
                     try: return cm.get_column_index(role, i)
                     except ValueError: return None
+
 
                 s_idx = get_idx("plan_start")
                 e_idx = get_idx("plan_end")

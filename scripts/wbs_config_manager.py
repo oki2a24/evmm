@@ -8,6 +8,13 @@ import json
 class WBSConfigManager:
     """
     WBSエクセルの構造を解析し、役割ベースのカラムマッピングを管理するクラス。
+
+    【設計背景 (Architecture Rationale)】
+    本プロジェクトでは「Excel-as-Master」の思想に基づき、人間が自由に編集したエクセルを
+    プログラムが理解する必要があります。このクラスは「翻訳者」として、エクセルの
+    物理的な列名・位置を、プログラムが扱う抽象的な「役割（Role）」へと変換します。
+    これにより、プロジェクトごとにテンプレートが微修正されても、ロジックを壊さずに
+    運用を継続することを可能にしています。
     """
     
     DEFAULT_ROLES = {
@@ -77,7 +84,7 @@ class WBSConfigManager:
             if info["name"] not in cell_val:
                 return False
         
-        # 2. フェーズ項目のチェック (レビュアー指摘: バリデーション範囲の拡大)
+        # 2. フェーズ項目のチェック
         for p in self.config["columns"]["phases"]:
             for role, info in p["mapping"].items():
                 cell_val = str(ws.cell(row=h_row, column=info["index"] + 1).value)
@@ -89,7 +96,16 @@ class WBSConfigManager:
     def infer_structure(self) -> Dict[str, Any]:
         """
         エクセルのヘッダーをスキャンし、構造を推論する。
+
+        【推論の規律】
+        1. ID列の特定: 最初に「機能ID」等のキーワードを含む列を探し、そこをヘッダー行とみなします。
+        2. フェーズの分離: ヘッダー行の上方向にスキャンして、結合セルや単一セルで書かれた「作成」等の
+           フェーズ名を取得し、以降のカラムをそのフェーズに所属させます。
+        3. 役割の割当: 各列名に対して正規表現マッチングを行い、最も近い役割を割り当てます。
         """
+        # openpyxl を使用して物理ファイルをスキャン。
+        # ※テスト時にも物理的な Zip (xlsx) 構造を要求するため、テストコード側で
+        #   物理ファイルの生成が必要になる点に注意してください。
         wb = openpyxl.load_workbook(self.file_path, read_only=True, data_only=True)
         if self.sheet_name not in wb.sheetnames:
             raise ValueError(f"Sheet '{self.sheet_name}' not found.")
@@ -109,7 +125,7 @@ class WBSConfigManager:
 
         header_row = rows[header_row_idx]
         
-        # 2. フェーズ行の特定 (レビュアー指摘: 上方向にスキャンして非空行を探す)
+        # 2. フェーズ行の特定 (上方向にスキャンして非空行を探す)
         phase_row_idx = -1
         for i in range(header_row_idx - 1, -1, -1):
             if any(str(cell).strip() for cell in rows[i] if cell):
@@ -127,7 +143,6 @@ class WBSConfigManager:
                 "phases": []
             }
         }
-
 
         current_phase = None
         phase_data = None
@@ -149,7 +164,6 @@ class WBSConfigManager:
                     break
             
             if matched_role:
-                # レビュアー指摘: インデックス (0-based) も保持
                 info = {"name": col_name, "index": i}
                 if matched_role in ["id", "name"]:
                     config["columns"]["common"][matched_role] = info
@@ -184,7 +198,6 @@ class WBSConfigManager:
         if ans == 'n':
             print("申し訳ありません。現在は自動推論のみをサポートしています。")
             print("エクセルのカラム名を標準的な名称（機能ID, 開始日予定等）に変更して再試行してください。")
-            # 本来はここで詳細な修正UIを提供すべきだが、まずは簡易化
             
         return config
 
@@ -196,7 +209,13 @@ class WBSConfigManager:
         print(f"設定を保存しました: {self.config_path}")
 
     def get_column_index(self, role: str, phase_idx: int = 0) -> int:
-        """役割とフェーズインデックスから列インデックス(0-based)を取得する。"""
+        """
+        役割とフェーズインデックスから列インデックス(0-based)を取得する。
+
+        【ガードレール】
+        インデックスを直接返さずこのメソッドを経由させることで、カラムの欠落や
+        フェーズ名の変更に対して、実行時に具体的なエラーメッセージを提示できます。
+        """
         if not self.config:
             self.load_or_infer(interactive=False)
             
@@ -207,6 +226,8 @@ class WBSConfigManager:
             mapping = self.config["columns"]["phases"][phase_idx]["mapping"]
             if role in mapping:
                 return mapping[role]["index"]
+            
+            phase_name = self.config["columns"]["phases"][phase_idx]["name"]
+            raise ValueError(f"必須項目 '{role}' がフェーズ '{phase_name}' (インデックス {phase_idx}) で見つかりません。エクセルのカラム名を確認してください。")
         
-        raise ValueError(f"Role '{role}' not found in phase {phase_idx}.")
-
+        raise ValueError(f"共通項目またはフェーズ {phase_idx} において、役割 '{role}' が定義されていません。")

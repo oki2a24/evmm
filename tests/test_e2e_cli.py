@@ -26,7 +26,7 @@ def test_cli_initializes_context_automatically(tmp_path):
     env["PYTHONPATH"] = f".:{env.get('PYTHONPATH', '')}"
     
     result = subprocess.run(
-        ["./.venv/bin/python3", "scripts/analyze_evm.py", str(excel_path)],
+        ["./.venv/bin/python3", "scripts/analyze_evm.py", str(excel_path), "--non-interactive"],
         capture_output=True,
         text=True,
         env=env

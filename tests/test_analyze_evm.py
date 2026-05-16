@@ -8,8 +8,16 @@ from scripts.analyze_evm import EVMAnalyst, analyze_project
 
 @pytest.fixture
 def dummy_excel(tmp_path):
-    """推論ロジックが通る程度の最低限のヘッダーを持つエクセルを作成"""
+    """
+    推論ロジックが通る程度の最低限のヘッダーを持つエクセルを作成。
+    
+    【テスト設計の変更背景】
+    WBSConfigManager の導入により、初期化時にエクセルの Zip 構造を物理的に読み込む
+    必要が生じました（ZipFile バリデーション回避のため）。単なる DataFrame 
+    のモックではなく、一時的な .xlsx ファイルを生成する方式に統一しています。
+    """
     file_path = tmp_path / "dummy.xlsx"
+
     df = pd.DataFrame([
         ["作成", None, None, None, None, None, None, None, None, None],
         ["機能ID", "機能名称", "開始日予定", "終了日予定", "工数予定", "開始日実績", "終了日実績", "工数実績", "進捗率(%)", "PV (計画値)"],
