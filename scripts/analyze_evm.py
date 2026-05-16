@@ -3,6 +3,7 @@ import openpyxl
 import os
 from datetime import date, datetime
 from scripts.utils import get_working_days, ensure_project_context
+from scripts.wbs_config_manager import WBSConfigManager
 
 """
 EVM分析エンジン (EVMAnalyst)
@@ -12,92 +13,60 @@ EVM分析エンジン (EVMAnalyst)
 プロジェクトの現状診断と将来予測を行うための「正確な計算機」として動作します。
 
 【設計思想：正確な計算と将来の拡張性】
-1. 稼働日ベースの計算: 単なる暦日ではなく、土日祝日を除外した「稼働日」を分母とすることで、
-   PMが実感する進捗状況と一致したPV（計画値）を算出します。
-2. 基準日（Status Date）の柔軟性: 分析の基準日を動的に指定可能にすることで、
-   過去の特定時点での効率分析や、将来のシミュレーションを可能にします。
-3. エクセルへの外科的更新: 既存のセルの書式や数式を壊さないよう、openpyxlを用いて
-   計算結果のみを特定セルに書き込みます。
+1. 役割ベースのマッピング: 固定のカラム名ではなく、WBSConfigManager 経由で役割に応じた列を特定します。
+2. 柔軟なフェーズ構造: テンプレートのフェーズ数に依存せず、存在する全てのフェーズを分析対象とします。
 """
 
 class EVMAnalyst:
-    def __init__(self, file_path, status_date=None):
+    def __init__(self, file_path, status_date=None, interactive=False):
         """
         EVM分析エンジンの初期化
-        
-        :param file_path: 分析対象のWBSエクセルファイルパス
-        :param status_date: 分析基準日（デフォルトは今日）
         """
         self.file_path = file_path
         self.status_date = status_date if status_date else date.today()
-        # 内部で扱う日付は比較のために datetime.date 型に統一します
         if isinstance(self.status_date, datetime):
             self.status_date = self.status_date.date()
 
-        # プロジェクトのメタデータ（コンテキストパスなど）
         self.project_path = os.path.dirname(os.path.abspath(file_path))
         self.metadata = {
             "project_path": self.project_path,
             "context_path": os.path.join(self.project_path, "docs", "context.md")
         }
+        
+        self.config_manager = WBSConfigManager(file_path)
+        self.config = self.config_manager.load_or_infer(interactive=interactive)
 
     def calculate_pv(self, start_date, end_date, planned_effort):
         """
         PV（Planned Value：計画値）を線形按分法で算出する。
-        
-        【ロジックの背景】
-        PVは「現時点で完了しているべき作業量」を示します。
-        本実装では、タスクの総稼働日数に対する基準日までの経過稼働日数の割合を
-        工数予定に乗じることで算出します。
-        
-        :param start_date: タスク開始予定日
-        :param end_date: タスク終了予定日
-        :param planned_effort: タスクの総工数予定（人日）
-        :return: 基準日時点のPV
         """
-        # 日付型の変換（Timestamp等への対応）
         if hasattr(start_date, 'date'): start_date = start_date.date()
         if hasattr(end_date, 'date'): end_date = end_date.date()
         
-        # 1. 基準日が開始日前なら 0.0
         if self.status_date < start_date:
             return 0.0
-        
-        # 2. 基準日が終了日後なら 全額 (100%)
         if self.status_date >= end_date:
             return planned_effort
             
-        # 3. 期間内の場合：稼働日ベースで按分
-        # 総稼働日数の計算（開始から終了まで）
         total_working_days = get_working_days(start_date, end_date)
         if total_working_days <= 0:
             return 0.0
             
-        # 経過稼働日数の計算（開始から基準日まで）
         elapsed_working_days = get_working_days(start_date, self.status_date)
-        
-        # 線形按分 (経過日数 / 総日数) * 総工数
         pv = (elapsed_working_days / total_working_days) * planned_effort
         return round(pv, 2)
 
     def calculate_ev(self, planned_effort, progress_rate):
         """
         EV（Earned Value：出来高）を算出する。
-        
-        :param planned_effort: 工数予定（人日）
-        :param progress_rate: 進捗率（%）
-        :return: 進捗に応じた出来高
         """
         if pd.isna(progress_rate):
             return 0.0
-        return round(planned_effort * (progress_rate / 100.0), 2)
+        return round(planned_effort * (float(progress_rate) / 100.0), 2)
 
     def calculate_ac(self, actual_effort):
         """
         AC（Actual Cost：実績コスト）を算出する。
-        本プロジェクトでは「工数実績」列に入力された人日をそのままACとして扱います。
-        
-        :param actual_effort: 工数実績（人日）
         """
         if pd.isna(actual_effort):
             return 0.0
@@ -106,42 +75,29 @@ class EVMAnalyst:
     def calculate_bac(self, df):
         """
         BAC（Budget At Completion：完成時総予算）を算出する。
-        WBS全体の全フェーズの「工数予定」を合算します。
-        
-        :param df: WBSデータのDataFrame
-        :return: 総予算（人日）
         """
         total_bac = 0.0
-        # 「工数予定」で始まる全てのカラムを抽出して合算
-        effort_cols = [c for c in df.columns if str(c).startswith("工数予定")]
-        for col in effort_cols:
-            total_bac += df[col].sum()
+        cm = self.config_manager
+        for i in range(len(self.config["columns"]["phases"])):
+            try:
+                idx = cm.get_column_index("plan_effort", i)
+                total_bac += df.iloc[:, idx].sum()
+            except ValueError:
+                continue
         return round(total_bac, 2)
 
     def calculate_forecasts(self, bac, ev, ac, pv):
         """
         PMBOK公式に基づき、3つの予測シナリオを算出する。
-        
-        :param bac: 完成時総予算
-        :param ev: 出来高
-        :param ac: 実績コスト
-        :param pv: 計画値
-        :return: 3シナリオの辞書
         """
         cpi = ev / ac if ac > 0 else 1.0
         spi = ev / pv if pv > 0 else 1.0
         
-        # ゼロ除算防止のためのガードレール (最低効率を 0.01 に設定)
         safe_cpi = max(cpi, 0.01)
         safe_spi = max(spi, 0.01)
         
-        # 1. 現実的 (Realistic): 現在の効率が継続
         eac_r = bac / safe_cpi
-        
-        # 2. 楽観的 (Optimistic): 残りは計画通り
         eac_o = ac + (bac - ev)
-        
-        # 3. 慎重 (Pessimistic): 現在の効率とスケジュールの両方を考慮
         eac_p = ac + ((bac - ev) / (safe_cpi * safe_spi))
         
         def build_res(eac, desc):
@@ -161,21 +117,15 @@ class EVMAnalyst:
     def run(self):
         """
         分析のメイン実行フロー。
-        
-        【規律：分析前の整合性チェック】
-        プロジェクト憲法に基づき、計算を行う前に必ず WBSIntegrityChecker を実行します。
-        不整合なデータ（例：開始日が終了日より後）がある場合、誤ったCPI/SPIを
-        出力することを防ぐため、処理を中断します。
         """
         from scripts.check_wbs_integrity import WBSIntegrityChecker
         
         print(f"--- 整合性チェックを開始します: {self.file_path} ---")
-        checker = WBSIntegrityChecker(self.file_path)
+        checker = WBSIntegrityChecker(self.file_path, interactive=False) # 分析時は非対話
         df = checker.load_wbs()
         errors = checker.check_dataframe(df)
         
         if errors:
-            # エラーがある場合はExcelにエラー内容を書き込んで中断
             checker.errors = errors
             checker.write_results_to_excel()
             raise ValueError(f"整合性チェックでエラーが検出されました ({len(errors)}件)。修正してから再度実行してください。")
@@ -183,50 +133,42 @@ class EVMAnalyst:
         print("整合性チェックOK。分析を開始します...")
 
         results = []
-        # 各フェーズ（0:作成, 1:レビュー, 2:修正）のデータを特定して計算
+        cm = self.config_manager
+        phases = self.config["columns"]["phases"]
+        idx_id = cm.get_column_index("id")
+        start_row = self.config["data_start_row"]
+
         for index, row in df.iterrows():
-            # 機能IDが空の行はデータ行ではないとみなしてスキップ
-            if pd.isna(row.get("機能ID")):
+            if pd.isna(row.iloc[idx_id]):
                 continue
 
-            # 最大3フェーズ（テンプレートの標準構造）をループ処理
-            for phase_idx in range(3):
-                suffix = f".{phase_idx}" if phase_idx > 0 else ""
-                
-                start_col = f"開始日予定{suffix}"
-                end_col = f"終了日予定{suffix}"
-                effort_col = f"工数予定{suffix}"
-                progress_col = f"進捗率(%){suffix}"
-                actual_col = f"工数実績{suffix}"
-                pv_col_name = f"PV (計画値){suffix}"
+            for phase_idx in range(len(phases)):
+                try:
+                    s_idx = cm.get_column_index("plan_start", phase_idx)
+                    e_idx = cm.get_column_index("plan_end", phase_idx)
+                    m_idx = cm.get_column_index("plan_effort", phase_idx)
+                    pr_idx = cm.get_column_index("progress", phase_idx)
+                    act_idx = cm.get_column_index("actual_effort", phase_idx)
+                    pv_idx = cm.get_column_index("pv", phase_idx)
 
-                # テンプレート構造が拡張され、カラムが存在しない場合はスキップ
-                if start_col not in df.columns:
+                    if pd.isna(row.iloc[s_idx]) or pd.isna(row.iloc[e_idx]):
+                        continue
+
+                    pv = self.calculate_pv(row.iloc[s_idx], row.iloc[e_idx], row.iloc[m_idx])
+                    ev = self.calculate_ev(row.iloc[m_idx], row.iloc[pr_idx])
+                    ac = self.calculate_ac(row.iloc[act_idx])
+
+                    results.append({
+                        "row": index + start_row,
+                        "pv": pv,
+                        "ev": ev,
+                        "ac": ac,
+                        "excel_pv": row.iloc[pv_idx],
+                        "phase_idx": phase_idx
+                    })
+                except ValueError:
                     continue
 
-                # 予定が未入力の場合はPV計算ができないためスキップ
-                if pd.isna(row[start_col]) or pd.isna(row[end_col]):
-                    continue
-
-                pv = self.calculate_pv(row[start_col], row[end_col], row[effort_col])
-                ev = self.calculate_ev(row[effort_col], row[progress_col])
-                ac = self.calculate_ac(row[actual_col])
-
-                results.append({
-                    "row": index + 3, # Excel行番号（Header 2行 + 1-index = +3）
-                    "pv": pv,
-                    "ev": ev,
-                    "ac": ac,
-                    "excel_pv": row[pv_col_name], # エクセル上の現在値（比較用）
-                    "phase_idx": phase_idx
-                })
-
-        # 3. Excelへの書き戻し（外科的更新）
-        # 【重要】エクセルの数式を保護するため、デフォルトでは上書きを無効化します。
-        # 必要に応じて引数等で有効化できるよう設計上の余地を残します。
-        # self.write_results_to_excel(results)
-        
-        # 4. AIアナリスト向けのサマリーJSON出力
         summary = self.get_summary_json(results, df)
         import json
         print("\n--- 分析集計結果 (JSON) ---")
@@ -241,34 +183,19 @@ class EVMAnalyst:
         計算結果（PV, EV, AC）をExcelの該当セルに書き込む。
         """
         wb = openpyxl.load_workbook(self.file_path)
-        if 'WBS_EVM' not in wb.sheetnames:
-            raise ValueError("'WBS_EVM' シートが見つかりません。")
-            
-        ws = wb['WBS_EVM']
-        header_row = 2
+        ws = wb[self.config["sheet_name"]]
+        cm = self.config_manager
         
-        def get_column_indices(target_name):
-            indices = []
-            for c in range(1, ws.max_column + 1):
-                val = ws.cell(row=header_row, column=c).value
-                if val == target_name:
-                    indices.append(c)
-            return indices
-
-        pv_cols = get_column_indices("PV (計画値)")
-        ev_cols = get_column_indices("EV (出来高)")
-        ac_cols = get_column_indices("AC (実績コスト)")
-
         for res in results:
             row_idx = res["row"]
-            phase_idx = res.get("phase_idx", 0)
+            p_idx = res["phase_idx"]
             
-            if phase_idx < len(pv_cols):
-                ws.cell(row=row_idx, column=pv_cols[phase_idx]).value = res["pv"]
-            if phase_idx < len(ev_cols):
-                ws.cell(row=row_idx, column=ev_cols[phase_idx]).value = res["ev"]
-            if phase_idx < len(ac_cols):
-                ws.cell(row=row_idx, column=ac_cols[phase_idx]).value = res["ac"]
+            try:
+                ws.cell(row=row_idx, column=cm.get_column_index("pv", p_idx) + 1).value = res["pv"]
+                ws.cell(row=row_idx, column=cm.get_column_index("ev", p_idx) + 1).value = res["ev"]
+                ws.cell(row=row_idx, column=cm.get_column_index("ac", p_idx) + 1).value = res["ac"]
+            except ValueError:
+                continue
 
         wb.save(self.file_path)
         print(f"Excelへの計算結果反映が完了しました: {self.file_path}")
@@ -281,17 +208,14 @@ class EVMAnalyst:
         total_ev = sum(r["ev"] for r in results)
         total_ac = sum(r["ac"] for r in results)
         
-        # 乖離（Gap）の分析：エクセル値と計算値の差を特定
         gaps = []
         for r in results:
-            # 数値として比較可能な場合のみ
             try:
                 e_pv = float(r["excel_pv"]) if not pd.isna(r["excel_pv"]) else 0.0
                 diff = abs(r["pv"] - e_pv)
-                if diff > 0.01: # わずかな誤差を除外
+                if diff > 0.01:
                     gaps.append({"row": r["row"], "excel_pv": e_pv, "python_pv": r["pv"], "diff": diff})
             except (ValueError, TypeError):
-                # 数式が入っている場合は float() 変換に失敗するが、それは「正常」
                 continue
 
         cpi = total_ev / total_ac if total_ac > 0 else 1.0
@@ -299,7 +223,7 @@ class EVMAnalyst:
         
         summary = {
             "status_date": str(self.status_date),
-            "metadata": self.metadata,  # メタデータを追加
+            "metadata": self.metadata,
             "metrics": {
                 "total_pv": round(total_pv, 2),
                 "total_ev": round(total_ev, 2),
@@ -309,12 +233,11 @@ class EVMAnalyst:
             },
             "gap_analysis": {
                 "count": len(gaps),
-                "details": gaps[:5] # 代表的な乖離のみ提示
+                "details": gaps[:5]
             },
             "alerts": []
         }
         
-        # 将来予測 (Forecasting) の追加
         if df is not None:
             bac = self.calculate_bac(df)
             forecasts = self.calculate_forecasts(bac, total_ev, total_ac, total_pv)
@@ -329,17 +252,14 @@ class EVMAnalyst:
         
         return summary
 
-def analyze_project(file_path, status_date=None):
+def analyze_project(file_path, status_date=None, interactive=False):
     """
     プロジェクトの分析を実行するエントリーポイント関数。
-    コンテキスト基盤の自動生成・補完を保証する。
     """
-    # プロジェクトパスの特定とコンテキスト初期化
     project_path = os.path.dirname(os.path.abspath(file_path))
     ensure_project_context(project_path)
     
-    # 分析の実行
-    analyst = EVMAnalyst(file_path, status_date=status_date)
+    analyst = EVMAnalyst(file_path, status_date=status_date, interactive=interactive)
     return analyst.run()
 
 if __name__ == "__main__":
@@ -350,6 +270,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='WBS/EVM 自動分析エンジン')
     parser.add_argument('file_path', help='分析対象のエクセルファイルパス')
     parser.add_argument('--date', help='分析基準日 (YYYY-MM-DD)。指定がない場合は今日。')
+    parser.add_argument('--non-interactive', action='store_true', help='対話型プロンプトを無効化する')
     
     args = parser.parse_args()
     
@@ -361,6 +282,4 @@ if __name__ == "__main__":
             print("エラー: 日付形式は YYYY-MM-DD で指定してください。")
             sys.exit(1)
     
-    # analyze_project エントリーポイントを使用することで、
-    # コンテキストの初期化を保証する。
-    analyze_project(args.file_path, status_date=status_date_val)
+    analyze_project(args.file_path, status_date=status_date_val, interactive=not args.non_interactive)
