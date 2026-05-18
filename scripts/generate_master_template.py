@@ -1,4 +1,6 @@
 import os
+import argparse
+import json
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.formatting.rule import CellIsRule
@@ -427,6 +429,23 @@ class TemplateGenerator:
                     ws.cell(row=row, column=mapping["ac"]["index"] + 1, value=formula).alignment = alignment
 
 if __name__ == "__main__":
-    OUTPUT_PATH = "templates/master_template.xlsx"
-    generator = TemplateGenerator(OUTPUT_PATH)
-    generator.generate()
+    parser = argparse.ArgumentParser(description="WBS/EVM マスターテンプレート生成スクリプト")
+    parser.add_argument("--config", help="WBS構造を定義したJSONファイルのパス")
+    parser.add_argument("--output", default="templates/master_template.xlsx", help="生成するエクセルの出力パス")
+    parser.add_argument("--sheet-name", help="WBSシート名の指定（config内の設定を上書き）")
+    
+    args = parser.parse_args()
+    
+    config = None
+    if args.config:
+        if not os.path.exists(args.config):
+            print(f"Error: Config file not found: {args.config}")
+            exit(1)
+        with open(args.config, "r", encoding="utf-8") as f:
+            config = json.load(f)
+        
+        if args.sheet_name:
+            config["sheet_name"] = args.sheet_name
+
+    generator = TemplateGenerator(args.output)
+    generator.generate(config=config)

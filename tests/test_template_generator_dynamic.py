@@ -90,3 +90,41 @@ def test_dynamic_formula_references(tmp_path):
     # 期待される数式: =C3 * (D3/100)
     ev_formula = ws.cell(row=3, column=5).value
     assert ev_formula == "=C3*(D3/100)"
+
+def test_cli_integration(tmp_path):
+    """
+    コマンドライン引数 --config を使用してエクセルが生成されることを検証。
+    """
+    import json
+    import subprocess
+    import sys
+    
+    config = {
+        "sheet_name": "CLI_Sheet",
+        "header_row": 2,
+        "columns": {
+            "common": {"id": {"index": 0, "name": "ID"}, "name": {"index": 1, "name": "Name"}},
+            "phases": [{"name": "P1", "mapping": {"progress": {"index": 2, "name": "P"}}}],
+            "all": [{"name": "ID", "index": 0, "role": "id"}, {"name": "Name", "index": 1, "role": "name"}, {"name": "P", "index": 2, "role": "progress"}]
+        }
+    }
+    config_path = tmp_path / "cli_config.json"
+    with open(config_path, "w") as f:
+        json.dump(config, f)
+        
+    output_path = tmp_path / "cli_out.xlsx"
+    
+    # スクリプトの実行 (python scripts/generate_master_template.py --config ... --output ...)
+    cmd = [
+        sys.executable, 
+        "scripts/generate_master_template.py", 
+        "--config", str(config_path), 
+        "--output", str(output_path)
+    ]
+    
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    assert result.returncode == 0
+    assert os.path.exists(output_path)
+    
+    wb = openpyxl.load_workbook(output_path)
+    assert "CLI_Sheet" in wb.sheetnames
