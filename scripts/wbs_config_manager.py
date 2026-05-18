@@ -150,33 +150,37 @@ class WBSConfigManager:
         phase_data = None
 
         for i, (col_name, p_name) in enumerate(zip(header_row, phase_row)):
-            if col_name is None: 
-                # 空列も位置保持のために記録
-                config["columns"]["all"].append({"name": None, "index": i})
-                continue
-                
-            col_name = str(col_name)
-            config["columns"]["all"].append({"name": col_name, "index": i})
+            col_info = {"name": col_name, "index": i, "role": None}
+            config["columns"]["all"].append(col_info)
 
+            # 1. フェーズの開始検知 (ヘッダーが空でもフェーズ行に名前があれば開始)
             if p_name and str(p_name).strip():
                 if phase_data:
                     config["columns"]["phases"].append(phase_data)
                 current_phase = str(p_name).strip()
                 phase_data = {"name": current_phase, "mapping": {}}
 
+            # 2. ヘッダーが空なら以降の役割マッチングをスキップ
+            if col_name is None:
+                continue
+
+            col_name = str(col_name)
+
             matched_role = None
             for role, patterns in self.DEFAULT_ROLES.items():
                 if any(re.search(p, col_name) for p in patterns):
                     matched_role = role
                     break
-            
+
             if matched_role:
+                col_info["role"] = matched_role # all にも役割を記録
                 info = {"name": col_name, "index": i}
                 if matched_role in ["id", "name"]:
                     config["columns"]["common"][matched_role] = info
                 elif phase_data:
                     if matched_role not in phase_data["mapping"]:
                         phase_data["mapping"][matched_role] = info
+
 
         if phase_data:
             config["columns"]["phases"].append(phase_data)
