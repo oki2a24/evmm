@@ -3,6 +3,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.formatting.rule import CellIsRule
 from openpyxl.workbook.defined_name import DefinedName
+from openpyxl.utils import get_column_letter
 
 """
 WBS/EVM マスターテンプレート生成スクリプト
@@ -383,6 +384,47 @@ class TemplateGenerator:
 
         # 3. スタイルの適用（罫線）
         self._apply_borders(ws, 1, 102, 1, max_idx, outer_medium=True)
+
+        # 4. データ行への数式適用 (3行目から102行目)
+        for row in range(3, 103):
+            for phase in config["columns"]["phases"]:
+                mapping = phase["mapping"]
+                
+                # 役割ごとの列記号を取得
+                def get_col(role):
+                    if role in mapping:
+                        return get_column_letter(mapping[role]["index"] + 1)
+                    return None
+
+                p_start = get_col("plan_start")
+                p_end = get_col("plan_end")
+                p_effort = get_col("plan_effort")
+                a_effort = get_col("actual_effort")
+                progress = get_col("progress")
+                pv = get_col("pv")
+                ev = get_col("ev")
+                ac = get_col("ac")
+
+                # 進捗率セルの書式設定
+                if progress:
+                    prog_cell = ws.cell(row=row, column=mapping["progress"]["index"] + 1)
+                    prog_cell.number_format = '0"%"'
+                    prog_cell.alignment = alignment
+
+                # PV 数式
+                if pv and p_start and p_end and p_effort:
+                    formula = f'=IF(TODAY()<{p_start}{row}, 0, IF(TODAY()>{p_end}{row}, {p_effort}{row}, {p_effort}{row} * (TODAY()-{p_start}{row})/({p_end}{row}-{p_start}{row}+1)))'
+                    ws.cell(row=row, column=mapping["pv"]["index"] + 1, value=formula).alignment = alignment
+
+                # EV 数式
+                if ev and p_effort and progress:
+                    formula = f'={p_effort}{row}*({progress}{row}/100)'
+                    ws.cell(row=row, column=mapping["ev"]["index"] + 1, value=formula).alignment = alignment
+
+                # AC 数式
+                if ac and a_effort:
+                    formula = f'={a_effort}{row}'
+                    ws.cell(row=row, column=mapping["ac"]["index"] + 1, value=formula).alignment = alignment
 
 if __name__ == "__main__":
     OUTPUT_PATH = "templates/master_template.xlsx"

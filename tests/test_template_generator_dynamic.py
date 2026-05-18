@@ -47,3 +47,46 @@ def test_generate_from_custom_config(tmp_path):
     assert ws.cell(row=2, column=1).value == "No."
     assert ws.cell(row=2, column=2).value == "項目名"
     assert ws.cell(row=2, column=3).value == "開始"
+
+def test_dynamic_formula_references(tmp_path):
+    """
+    動的に配置された列に対して、正しい相対参照の数式が生成されていることを検証。
+    """
+    output_path = str(tmp_path / "formula_test.xlsx")
+    # 工数予定(index:2), 進捗(index:3) の位置に配置
+    config = {
+        "sheet_name": "WBS_EVM",
+        "header_row": 2,
+        "columns": {
+            "common": {"id": {"index": 0, "name": "ID"}, "name": {"index": 1, "name": "Name"}},
+            "phases": [
+                {
+                    "name": "Phase1",
+                    "mapping": {
+                        "plan_effort": {"index": 2, "name": "予定工数"},
+                        "progress": {"index": 3, "name": "進捗率"},
+                        "ev": {"index": 4, "name": "出来高(EV)"}
+                    }
+                }
+            ],
+            "all": [
+                {"name": "ID", "index": 0, "role": "id"},
+                {"name": "Name", "index": 1, "role": "name"},
+                {"name": "予定工数", "index": 2, "role": "plan_effort"},
+                {"name": "進捗率", "index": 3, "role": "progress"},
+                {"name": "出来高(EV)", "index": 4, "role": "ev"}
+            ]
+        }
+    }
+    
+    gen = TemplateGenerator(output_path)
+    gen.generate(config=config)
+    
+    wb = openpyxl.load_workbook(output_path)
+    ws = wb["WBS_EVM"]
+    
+    # 3行目の EV 数式を検証
+    # 予定工数は C列 (3), 進捗率は D列 (4), EVは E列 (5)
+    # 期待される数式: =C3 * (D3/100)
+    ev_formula = ws.cell(row=3, column=5).value
+    assert ev_formula == "=C3*(D3/100)"
