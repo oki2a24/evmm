@@ -81,6 +81,10 @@ def test_wbs_evm_formulas_and_alerts():
     # EV (出来高) の数式が /100 されていることを検証する
     ev_formula = ws.cell(row=3, column=14).value
     assert "/100" in ev_formula, f"EVの数式に進捗率のパーセント補正(/100)が含まれていません: {ev_formula}"
+
+    # PV (計画値) の数式にゼロ除算保護 (MAX) が含まれていることを検証
+    pv_formula = ws.cell(row=3, column=13).value
+    assert "MAX(1," in pv_formula, f"PVの数式にゼロ除算保護(MAX)が含まれていません: {pv_formula}"
     
     assert ws.cell(row=3, column=15).data_type == 'f', "15列目(AC) に数式が設定されていません。"
     

@@ -87,9 +87,82 @@ def test_dynamic_formula_references(tmp_path):
     
     # 3行目の EV 数式を検証
     # 予定工数は C列 (3), 進捗率は D列 (4), EVは E列 (5)
-    # 期待される数式: =C3 * (D3/100)
+    # 期待される数式: =C3*(D3/100)
     ev_formula = ws.cell(row=3, column=5).value
     assert ev_formula == "=C3*(D3/100)"
+
+def test_robustness_pv_formula_and_header_row(tmp_path):
+    """
+    1. PV数式がゼロ除算（開始日=終了日）を回避しているか検証
+    2. ヘッダー行位置(header_row)がJSONに従って動的に変わるか検証
+    """
+    output_path = str(tmp_path / "robustness_test.xlsx")
+    config = {
+        "sheet_name": "WBS",
+        "header_row": 5, # 5行目をヘッダーにする
+        "columns": {
+            "common": {"id": {"index": 0, "name": "ID"}},
+            "phases": [
+                {
+                    "name": "P1",
+                    "mapping": {
+                        "plan_start": {"index": 1, "name": "S"},
+                        "plan_end": {"index": 2, "name": "E"},
+                        "plan_effort": {"index": 3, "name": "C"},
+                        "pv": {"index": 4, "name": "PV"}
+                    }
+                }
+            ],
+            "all": [
+                {"name": "ID", "index": 0, "role": "id"},
+                {"name": "S", "index": 1, "role": "plan_start"},
+                {"name": "E", "index": 2, "role": "plan_end"},
+                {"name": "C", "index": 3, "role": "plan_effort"},
+                {"name": "PV", "index": 4, "role": "pv"}
+            ]
+        }
+    }
+
+    gen = TemplateGenerator(output_path)
+    gen.generate(config=config)
+
+    wb = openpyxl.load_workbook(output_path)
+    ws = wb["WBS"]
+
+    # 検証1: ヘッダー位置 (header_row=5 なので、カラム名は 5行目、フェーズ名は 4行目にあるべき)
+    assert ws.cell(row=4, column=2).value == "P1"
+    assert ws.cell(row=5, column=1).value == "ID"
+
+    # 検証2: PV数式のゼロ除算保護
+    # 期待される修正後の数式（例）: 分母に +1 を含むか、MAX(1, ...) で保護されている
+    # 既存は (E-S+1) だったので、S=E なら分母は 1 になるはず。
+    # レビュアーの指摘は「逆転時 (E<S)」に 0 や 負 になるリスク。
+    # 安全な数式: ... / MAX(1, E-S+1)
+    pv_formula = ws.cell(row=6, column=5).value
+    assert "MAX(1," in pv_formula
+
+def test_dynamic_conditional_formatting(tmp_path):
+    """
+    動的生成時に、PV列に対して条件付き書式が設定されていることを検証。
+    """
+    output_path = str(tmp_path / "cf_test.xlsx")
+    config = {
+        "sheet_name": "WBS",
+        "columns": {
+            "common": {"id": {"index": 0, "name": "ID"}},
+            "phases": [{"name": "P1", "mapping": {"pv": {"index": 1, "name": "PV"}}}],
+            "all": [{"name": "ID", "index": 0, "role": "id"}, {"name": "PV", "index": 1, "role": "pv"}]
+        }
+    }
+    gen = TemplateGenerator(output_path)
+    gen.generate(config=config)
+    
+    wb = openpyxl.load_workbook(output_path)
+    ws = wb["WBS"]
+    
+    # 条件付き書式が存在することを確認 (B列3行目から102行目まで)
+    assert len(ws.conditional_formatting) > 0
+
 
 def test_cli_integration(tmp_path):
     """
