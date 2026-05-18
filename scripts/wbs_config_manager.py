@@ -141,7 +141,8 @@ class WBSConfigManager:
             "data_start_row": header_row_idx + 2,
             "columns": {
                 "common": {},
-                "phases": []
+                "phases": [],
+                "all": []  # 全ての列情報を順序通りに保持
             }
         }
 
@@ -149,8 +150,13 @@ class WBSConfigManager:
         phase_data = None
 
         for i, (col_name, p_name) in enumerate(zip(header_row, phase_row)):
-            if col_name is None: continue
+            if col_name is None: 
+                # 空列も位置保持のために記録
+                config["columns"]["all"].append({"name": None, "index": i})
+                continue
+                
             col_name = str(col_name)
+            config["columns"]["all"].append({"name": col_name, "index": i})
 
             if p_name and str(p_name).strip():
                 if phase_data:

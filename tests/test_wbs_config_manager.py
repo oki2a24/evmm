@@ -31,6 +31,38 @@ def test_infer_and_save_load(tmp_path):
     assert loaded_config["header_row"] == 2
     assert loaded_config["columns"]["common"]["id"]["name"] == "機能ID"
 
+def test_save_and_load_config_integrity(tmp_path):
+    """
+    infer_structure で生成した設定を保存し、再読み込みした際に
+    get_column_index などの挙動が完全に一致することを検証する。
+    """
+    df = pd.DataFrame([
+        ["作成", None, None, None, None],
+        ["機能ID", "機能名称", "開始日予定", "進捗率", "備考"],
+        ["F1", "Test", "2026-05-01", 0, "テスト備考"]
+    ])
+    file_path = tmp_path / "integrity_test.xlsx"
+    df.to_excel(file_path, index=False, header=False, sheet_name="WBS_EVM")
+
+    manager = WBSConfigManager(str(file_path))
+    config = manager.infer_structure()
+    manager.config = config
+    manager.save_config()
+    
+    # 再読み込み
+    new_manager = WBSConfigManager(str(file_path))
+    loaded_config = new_manager.load_or_infer(interactive=False)
+    
+    # 役割ベースでのインデックス取得が一致することを確認
+    assert new_manager.get_column_index("id") == 0
+    assert new_manager.get_column_index("name") == 1
+    assert new_manager.get_column_index("plan_start", phase_idx=0) == 2
+    assert new_manager.get_column_index("progress", phase_idx=0) == 3
+
+    # 未知の列（備考など）も保持されていることを期待（ここが現在のRED要件）
+    # 現在の infer_structure は役割にない列を無視しているため
+    assert "備考" in [c["name"] for c in loaded_config["columns"]["all"]]
+
 def test_infer_with_aliases_and_insertion(tmp_path):
     """
     実証テストで遭遇した『意地悪な構造』に対する推論テスト。
