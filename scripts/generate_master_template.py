@@ -184,7 +184,7 @@ class TemplateGenerator:
 
                 # PV (Planned Value / 計画値): s_col + 9
                 # 今日の日付に基づき、予定期間の消化具合から算出
-                pv_formula = f'=IF(TODAY()<{plan_start}{row}, 0, IF(TODAY()>{plan_end}{row}, {plan_cost}{row}, {plan_cost}{row} * (TODAY()-{plan_start}{row})/({plan_end}{row}-{plan_start}{row}+1)))'
+                pv_formula = f'=IF(TODAY()<{plan_start}{row}, 0, IF(TODAY()>{plan_end}{row}, {plan_cost}{row}, {plan_cost}{row} * (TODAY()-{plan_start}{row})/MAX(1, {plan_end}{row}-{plan_start}{row}+1)))'
                 pv_cell = ws.cell(row=row, column=s_col+9, value=pv_formula)
                 pv_cell.alignment = alignment
                 
@@ -329,7 +329,17 @@ class TemplateGenerator:
         self._apply_borders(ws, 1, len(members) + 2, 1, 7) # サンプルとして7列目まで
 
     def generate(self, config=None):
-        """全てのシートを生成し、Excelファイルを保存する"""
+        """
+        全てのシートを生成し、Excelファイルを保存する。
+        
+        【設計判断：新旧パスの共存理由】
+        このメソッドは、引数 `config` の有無によって挙動を分岐させます。
+        1. configあり（動的パス）: 人間が編集した既存エクセルから抽出された JSON に基づき、その「型」を復元します。
+        2. configなし（デフォルトパス）: 本プロジェクトの「標準」とされる 3フェーズ構造をゼロから生成します。
+        
+        将来的に標準構造自体が変更される場合は、デフォルトパスを修正するのではなく、
+        標準となる JSON を用意して動的パスに一本化することを推奨します。
+        """
         self.config = config
         if config:
             self._create_settings_sheet()
@@ -347,15 +357,29 @@ class TemplateGenerator:
         print(f"Template generated at: {self.output_path}")
 
     def _create_dynamic_wbs_sheet(self, config):
-        """JSON設定に基づき、動的なフェーズ・カラム構成でWBSシートを構築する"""
+        """
+        JSON設定に基づき、動的なフェーズ・カラム構成でWBSシートを構築する。
+        
+        【技術的負債への対策：数式の動的解決ロジック】
+        本メソッドの核心は、物理的な列位置に依存せず、役割（Role）に基づいて Excel 数式を組み立てる点にあります。
+        `get_column_letter` を用いて、JSON 内のインデックスを即座に Excel 列記号へ変換し、
+        相対参照（例：C{row}）を含む f-string で数式を生成します。
+        
+        【堅牢性：ゼロ除算と逆転日付の保護】
+        PV（計画値）の算出式において、分母に `MAX(1, {p_end}{row}-{p_start}{row}+1)` を採用しています。
+        これは、日付設定の不備（開始 > 終了）や同一日設定（分母が1になるべき）によって
+        Excel 上で #DIV/0! エラーが発生し、EVM分析全体が停止するリスクを物理的に回避するためです。
+        """
         sheet_name = config.get("sheet_name", "WBS_EVM")
+        header_row_idx = config.get("header_row", 2)
+        data_start_row = config.get("data_start_row", header_row_idx + 1)
         ws = self.wb.create_sheet(sheet_name)
         
         header_fill = PatternFill(start_color="CCE5FF", end_color="CCE5FF", fill_type="solid")
         header_font = Font(bold=True)
         alignment = Alignment(horizontal="center", vertical="center")
         
-        # 1. フェーズ見出しの配置
+        # 1. フェーズ見出しの配置 (header_row_idx - 1 行目)
         for phase in config["columns"]["phases"]:
             # そのフェーズに含まれる列の最小/最大インデックスを特定
             indices = [info["index"] for info in phase["mapping"].values()]
@@ -364,22 +388,22 @@ class TemplateGenerator:
             start_col = min(indices) + 1
             end_col = max(indices) + 1
             
-            ws.cell(row=1, column=start_col, value=phase["name"])
+            ws.cell(row=header_row_idx - 1, column=start_col, value=phase["name"])
             if start_col < end_col:
-                ws.merge_cells(start_row=1, start_column=start_col, end_row=1, end_column=end_col)
+                ws.merge_cells(start_row=header_row_idx - 1, start_column=start_col, end_row=header_row_idx - 1, end_column=end_col)
             
-            cell = ws.cell(row=1, column=start_col)
+            cell = ws.cell(row=header_row_idx - 1, column=start_col)
             cell.alignment = alignment
             cell.font = header_font
             cell.fill = header_fill
 
-        # 2. カラムヘッダー（2行目）の配置
+        # 2. カラムヘッダー（header_row_idx 行目）の配置
         # columns["all"] に基づいて全ての列を配置
         max_idx = 0
         for col in config["columns"]["all"]:
             idx = col["index"] + 1
             max_idx = max(max_idx, idx)
-            cell = ws.cell(row=2, column=idx, value=col["name"])
+            cell = ws.cell(row=header_row_idx, column=idx, value=col["name"])
             cell.font = header_font
             cell.alignment = alignment
             cell.fill = header_fill
@@ -387,8 +411,8 @@ class TemplateGenerator:
         # 3. スタイルの適用（罫線）
         self._apply_borders(ws, 1, 102, 1, max_idx, outer_medium=True)
 
-        # 4. データ行への数式適用 (3行目から102行目)
-        for row in range(3, 103):
+        # 4. データ行への数式適用
+        for row in range(data_start_row, data_start_row + 100):
             for phase in config["columns"]["phases"]:
                 mapping = phase["mapping"]
                 
@@ -413,9 +437,9 @@ class TemplateGenerator:
                     prog_cell.number_format = '0"%"'
                     prog_cell.alignment = alignment
 
-                # PV 数式
+                # PV 数式 (分母を MAX(1, ...) で保護)
                 if pv and p_start and p_end and p_effort:
-                    formula = f'=IF(TODAY()<{p_start}{row}, 0, IF(TODAY()>{p_end}{row}, {p_effort}{row}, {p_effort}{row} * (TODAY()-{p_start}{row})/({p_end}{row}-{p_start}{row}+1)))'
+                    formula = f'=IF(TODAY()<{p_start}{row}, 0, IF(TODAY()>{p_end}{row}, {p_effort}{row}, {p_effort}{row} * (TODAY()-{p_start}{row})/MAX(1, {p_end}{row}-{p_start}{row}+1)))'
                     ws.cell(row=row, column=mapping["pv"]["index"] + 1, value=formula).alignment = alignment
 
                 # EV 数式
@@ -427,6 +451,18 @@ class TemplateGenerator:
                 if ac and a_effort:
                     formula = f'={a_effort}{row}'
                     ws.cell(row=row, column=mapping["ac"]["index"] + 1, value=formula).alignment = alignment
+
+        # 5. アラート（条件付き書式）の設定
+        red_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+        for phase in config["columns"]["phases"]:
+            if "pv" in phase["mapping"]:
+                pv_idx = phase["mapping"]["pv"]["index"] + 1
+                col_letter = get_column_letter(pv_idx)
+                # 0未満アラート (デモ用。本来は SV がマイナスなどの判定を入れる)
+                ws.conditional_formatting.add(
+                    f"{col_letter}{data_start_row}:{col_letter}{data_start_row + 100}", 
+                    CellIsRule(operator='lessThan', formula=['0'], fill=red_fill)
+                )
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="WBS/EVM マスターテンプレート生成スクリプト")
