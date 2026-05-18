@@ -26,6 +26,7 @@ class TemplateGenerator:
     def __init__(self, output_path):
         self.output_path = output_path
         self.wb = Workbook()
+        self.config = None # 動的設定保持用
         # デフォルトのシートを削除して新しく作成
         if "Sheet" in self.wb.sheetnames:
             del self.wb["Sheet"]
@@ -38,6 +39,21 @@ class TemplateGenerator:
         thin = Side(style='thin')
         medium = Side(style='medium')
         
+        # フェーズ境界の特定 (共通項目と各フェーズの末尾列)
+        boundary_cols = []
+        if self.config:
+            # 共通項目の最大列
+            if self.config["columns"]["common"]:
+                boundary_cols.append(max(info["index"] + 1 for info in self.config["columns"]["common"].values()))
+            # 各フェーズの最大列
+            for phase in self.config["columns"]["phases"]:
+                indices = [info["index"] for info in phase["mapping"].values()]
+                if indices:
+                    boundary_cols.append(max(indices) + 1)
+        else:
+            # デフォルト時の固定位置
+            boundary_cols = [3, 15, 27]
+
         for row in ws.iter_rows(min_row=min_row, max_row=max_row, min_col=min_col, max_col=max_col):
             for cell in row:
                 # デフォルトは全周囲細線
@@ -52,12 +68,10 @@ class TemplateGenerator:
                     if cell.column == min_col: border_args['left'] = medium
                     if cell.column == max_col: border_args['right'] = medium
                 
-                # フェーズ境界の処理 (WBS_EVMシート固有)
+                # フェーズ境界の処理
                 # ユーザーの利便性のため、フェーズの区切りに太線を入れる
-                if ws.title == "WBS_EVM":
-                    # 各フェーズ（作成、レビュー、修正）の右端および基本情報の右端
-                    # 基本情報(3) | 作成(15) | レビュー(27) | 修正(39)
-                    if cell.column in [3, 15, 27]:
+                if ws.title in ["WBS_EVM", self.config.get("sheet_name") if self.config else None]:
+                    if cell.column in boundary_cols:
                         border_args['right'] = medium
                 
                 cell.border = Border(**border_args)
@@ -311,16 +325,64 @@ class TemplateGenerator:
         # 罫線の適用
         self._apply_borders(ws, 1, len(members) + 2, 1, 7) # サンプルとして7列目まで
 
-    def generate(self):
+    def generate(self, config=None):
         """全てのシートを生成し、Excelファイルを保存する"""
-        self._create_settings_sheet()
-        self._create_wbs_evm_sheet()
-        self._create_team_evm_sheet()
-        self._create_individual_sv_sheet()
+        self.config = config
+        if config:
+            self._create_settings_sheet()
+            self._create_dynamic_wbs_sheet(config)
+            # チームEVM等は構造が複雑なため、現在はデフォルト構造のみ対応
+            # self._create_team_evm_sheet() 
+        else:
+            self._create_settings_sheet()
+            self._create_wbs_evm_sheet()
+            self._create_team_evm_sheet()
+            self._create_individual_sv_sheet()
         
         os.makedirs(os.path.dirname(self.output_path), exist_ok=True)
         self.wb.save(self.output_path)
         print(f"Template generated at: {self.output_path}")
+
+    def _create_dynamic_wbs_sheet(self, config):
+        """JSON設定に基づき、動的なフェーズ・カラム構成でWBSシートを構築する"""
+        sheet_name = config.get("sheet_name", "WBS_EVM")
+        ws = self.wb.create_sheet(sheet_name)
+        
+        header_fill = PatternFill(start_color="CCE5FF", end_color="CCE5FF", fill_type="solid")
+        header_font = Font(bold=True)
+        alignment = Alignment(horizontal="center", vertical="center")
+        
+        # 1. フェーズ見出しの配置
+        for phase in config["columns"]["phases"]:
+            # そのフェーズに含まれる列の最小/最大インデックスを特定
+            indices = [info["index"] for info in phase["mapping"].values()]
+            if not indices: continue
+            
+            start_col = min(indices) + 1
+            end_col = max(indices) + 1
+            
+            ws.cell(row=1, column=start_col, value=phase["name"])
+            if start_col < end_col:
+                ws.merge_cells(start_row=1, start_column=start_col, end_row=1, end_column=end_col)
+            
+            cell = ws.cell(row=1, column=start_col)
+            cell.alignment = alignment
+            cell.font = header_font
+            cell.fill = header_fill
+
+        # 2. カラムヘッダー（2行目）の配置
+        # columns["all"] に基づいて全ての列を配置
+        max_idx = 0
+        for col in config["columns"]["all"]:
+            idx = col["index"] + 1
+            max_idx = max(max_idx, idx)
+            cell = ws.cell(row=2, column=idx, value=col["name"])
+            cell.font = header_font
+            cell.alignment = alignment
+            cell.fill = header_fill
+
+        # 3. スタイルの適用（罫線）
+        self._apply_borders(ws, 1, 102, 1, max_idx, outer_medium=True)
 
 if __name__ == "__main__":
     OUTPUT_PATH = "templates/master_template.xlsx"
