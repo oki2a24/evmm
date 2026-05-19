@@ -9,13 +9,13 @@ class WBSIntegrityChecker:
     """
     WBSの論理的整合性をチェックし、必要に応じて数式を修復するクラス。
     """
-    def __init__(self, file_path, fix=False, interactive=False):
+    def __init__(self, file_path, fix=False, interactive=False, sheet_name='WBS_EVM'):
         self.file_path = file_path
         self.fix = fix
         self.interactive = interactive
         self.errors = []
         self.formula_manager = FormulaIntegrityManager()
-        self.config_manager = WBSConfigManager(file_path)
+        self.config_manager = WBSConfigManager(file_path, sheet_name=sheet_name)
         self.config = self.config_manager.load_or_infer(interactive=interactive)
 
     def load_wbs(self):
@@ -240,9 +240,10 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description='WBS整合性チェック・修復スクリプト')
     parser.add_argument('file', help='Excelファイルパス')
+    parser.add_argument('--sheet', default='WBS_EVM', help='対象のシート名')
     parser.add_argument('--fix', action='store_true', help='数式の不整合を自動修復する')
     parser.add_argument('--non-interactive', action='store_true', help='対話型プロンプトを無効化する')
     
     args = parser.parse_args()
-    checker = WBSIntegrityChecker(args.file, fix=args.fix, interactive=not args.non_interactive)
+    checker = WBSIntegrityChecker(args.file, fix=args.fix, interactive=not args.non_interactive, sheet_name=args.sheet)
     checker.run()

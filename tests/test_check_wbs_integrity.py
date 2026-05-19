@@ -150,3 +150,24 @@ def test_check_actual_integrity(temp_checker):
     errors = checker.check_dataframe(df)
     
     assert any("進捗率100%ですが、終了日実績が未入力" in e["message"] for e in errors)
+
+def test_custom_sheet_name(tmp_path):
+    """
+    デフォルト以外のシート名を指定して整合性チェックができるか検証。
+    """
+    file_path = tmp_path / "custom_sheet.xlsx"
+    sheet_name = "My_Custom_WBS"
+    
+    # 独自シート名でエクセル作成
+    df = pd.DataFrame([
+        [None, "作成", None],
+        ["機能ID", "開始日予定", "終了日予定"],
+        ["F1", "2026-05-01", "2026-05-05"]
+    ])
+    df.to_excel(file_path, index=False, header=False, sheet_name=sheet_name)
+    
+    # シート名を指定してチェッカーを作成
+    # 現状の __init__ は sheet_name 引数を持っていないため、ここで TypeError が出るはず
+    checker = WBSIntegrityChecker(str(file_path), interactive=False, sheet_name=sheet_name)
+    
+    assert checker.config["sheet_name"] == sheet_name
